@@ -10,20 +10,30 @@ from src.schemas import InventoryItem
 # To add a report, just add a new entry here. It's that simple.
 PARSER_REGISTRY = [
     {
+        "channel_name": "FBA",
         "parser_func": parsers.parse_fba_report,
-        "filename_prefix": settings.FBA_FILENAME_PREFIX,
+        "required_files": {"primary": settings.FBA_FILENAME_PREFIX},
     },
     {
-        "parser_func": parsers.parse_dtc_report,
-        "filename_prefix": settings.DTC_FILENAME_PREFIX,
+        "channel_name": "Flexport",
+        "parser_func": parsers.parse_flexport_reports,
+        "required_files": {
+            "inventory": settings.FLEXPORT_INVENTORY_FILENAME_PREFIX,
+            "inbound": settings.FLEXPORT_INBOUND_FILENAME_PREFIX,
+        },
     },
     {
+        "channel_name": "AWD",
         "parser_func": parsers.parse_awd_report,
-        "filename_prefix": settings.AWD_FILENAME_PREFIX,
+        "required_files": {"primary": settings.AWD_FILENAME_PREFIX},
     },
     {
+        "channel_name": "WFS",
         "parser_func": parsers.parse_wfs_report,
-        "filename_prefix": settings.WFS_FILENAME_PREFIX,
+        "required_files": {
+            "sales": settings.WALMART_SALES_FILENAME_PREFIX,
+            "inventory": settings.WFS_INVENTORY_FILENAME_PREFIX,
+        },
     },
 ]
 
@@ -34,18 +44,31 @@ def run_process():
     today_str = utils.get_date_str_for_filename()
     print(f"Processing reports for date string: '{today_str}'")
 
-    # 1. Loop through the registry, parse all reports into a list of DataFrames
     dataframes = []
+    # --- UPGRADED Orchestration Loop ---
     for parser_config in PARSER_REGISTRY:
-        filename = f"{parser_config['filename_prefix']}{today_str}.csv"
-        file_path = settings.INPUT_DIR / filename
-        df = parser_config["parser_func"](file_path)
-        if df is not None:
-            dataframes.append(df)
+        channel = parser_config["channel_name"]
+        print(f"\n-- Processing Channel: {channel} --")
 
-    if not dataframes:
-        print("❌ No data found for today. Aborting process.")
-        return
+        file_paths = {}
+        all_files_found = True
+
+        # 1. Gather all required file paths for the current parser
+        for file_key, prefix in parser_config["required_files"].items():
+            path = settings.INPUT_DIR / f"{prefix}{today_str}.csv"
+            if not path.exists():
+                print(f"WARNING: Required file not found for {channel}: {path.name}")
+                all_files_found = False
+                break
+            file_paths[file_key] = path
+
+        # 2. If all files are present, run the parser
+        if all_files_found:
+            df = parser_config["parser_func"](file_paths)
+            if df is not None:
+                dataframes.append(df)
+        else:
+            print(f"Skipping channel {channel} due to missing files.")
 
     # 2. Combine all parsed dataframes by stacking them. This is the new, simpler "merge".
     print(f"Found {len(dataframes)} reports. Concatenating...")
@@ -61,7 +84,8 @@ def run_process():
     try:
         print("Validating data against schema...")
         validated_data = [
-            InventoryItem(**row) for row in combined_df.to_dict("records")
+            InventoryItem(**row)  # type: ignore
+            for row in combined_df.to_dict("records")
         ]
         print("✅ Data validation successful.")
     except ValidationError as e:

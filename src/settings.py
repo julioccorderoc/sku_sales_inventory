@@ -15,20 +15,34 @@ OUTPUT_DIR = BASE_DIR / os.getenv("OUTPUT_DIR", "output")
 
 # --- Filename Configuration ---
 FBA_FILENAME_PREFIX = os.getenv("FBA_FILENAME_PREFIX", "FBA_report_")
-DTC_FILENAME_PREFIX = os.getenv("DTC_FILENAME_PREFIX", "DTC_report_")
+FLEXPORT_INVENTORY_FILENAME_PREFIX = os.getenv(
+    "FLEXPORT_INVENTORY_FILENAME_PREFIX", "Flexport_levels_"
+)
+FLEXPORT_INBOUND_FILENAME_PREFIX = os.getenv(
+    "FLEXPORT_INBOUND_FILENAME_PREFIX", "Flexport_inbound_reconciliation_"
+)
 AWD_FILENAME_PREFIX = os.getenv("AWD_FILENAME_PREFIX", "AWD_report_")
-WFS_FILENAME_PREFIX = os.getenv("WFS_FILENAME_PREFIX", "WFS_report_")
+WFS_INVENTORY_FILENAME_PREFIX = os.getenv(
+    "WFS_INVENTORY_FILENAME_PREFIX", "Walmart_inventory_"
+)
+WALMART_SALES_FILENAME_PREFIX = os.getenv(
+    "WALMART_SALES_FILENAME_PREFIX", "Walmart_sales_"
+)
 COMBINED_FILENAME_BASE = os.getenv("COMBINED_FILENAME", "combined_inventory")
 
 # --- Webhook ---
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+# --- Output Configuration ---
+SAVE_JSON_OUTPUT = os.getenv("SAVE_JSON_OUTPUT", "true").lower() == "true"
+
 
 # --- Shared Business Logic ---
 # Define the explicit order for channels in the final report.
 CHANNEL_ORDER = [
-    "DTC",
     "FBA",
     "AWD",
+    "DTC",
+    "Reserve",
     "WFS",
 ]
 

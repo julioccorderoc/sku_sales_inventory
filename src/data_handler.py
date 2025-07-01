@@ -1,36 +1,42 @@
 import pandas as pd
 import requests
 import json
-from typing import List
 
 from . import settings
+from . import utils
 from .schemas import InventoryItem
 
 
-def save_outputs(df: pd.DataFrame, validated_data: List[InventoryItem]):
-    """Saves the final data to both CSV and JSON formats."""
+def save_outputs(df: pd.DataFrame, validated_data: list[InventoryItem]):
+    """Saves the final data to CSV and conditionally to JSON, with dated filenames."""
     settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    date_suffix = utils.get_date_suffix_for_filename()
 
-    csv_path = settings.OUTPUT_DIR / f"{settings.COMBINED_FILENAME_BASE}.csv"
-    json_path = settings.OUTPUT_DIR / f"{settings.COMBINED_FILENAME_BASE}.json"
+    csv_path = (
+        settings.OUTPUT_DIR / f"{settings.COMBINED_FILENAME_BASE}_{date_suffix}.csv"
+    )
+    json_path = (
+        settings.OUTPUT_DIR / f"{settings.COMBINED_FILENAME_BASE}_{date_suffix}.json"
+    )
 
-    # Save to CSV - use the Pydantic aliases for user-friendly column headers
     csv_columns = {
         field: info.alias for field, info in InventoryItem.model_fields.items()
     }
     df_for_csv = df.rename(columns=csv_columns)
     df_for_csv.to_csv(csv_path, index=False)
-    print(f"✅ Combined report saved to: {csv_path}")
+    print(f"✅ Normalized report saved to: {csv_path}")
 
-    # Save to JSON from the validated Pydantic models for guaranteed schema correctness
-    with open(json_path, "w") as f:
-        # model_dump will respect the field aliases
-        json_data = [item.model_dump(by_alias=True) for item in validated_data]
-        json.dump(json_data, f, indent=4, default=str)
-    print(f"✅ Combined report saved to: {json_path}")
+    # --- MODIFIED: Conditionally save to JSON ---
+    if settings.SAVE_JSON_OUTPUT:
+        with open(json_path, "w") as f:
+            json_data = [item.model_dump(by_alias=True) for item in validated_data]
+            json.dump(json_data, f, indent=2, default=str)
+        print(f"✅ JSON output saved to: {json_path}")
+    else:
+        print("INFO: Skipping JSON file save as per configuration.")
 
 
-def post_to_webhook(validated_data: List[InventoryItem]):
+def post_to_webhook(validated_data: list[InventoryItem]):
     """Posts the validated list of Pydantic models to the webhook."""
     if not settings.WEBHOOK_URL:
         print("⚠️ WEBHOOK_URL not set. Skipping webhook post.")
