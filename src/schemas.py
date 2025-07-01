@@ -8,6 +8,7 @@ class InventoryItem(BaseModel):
     This "long" format is highly scalable and analytics-friendly.
     """
 
+    id: str = Field(..., alias="ID")
     sku: str = Field(..., alias="SKU")
     channel: str = Field(..., alias="Channel")
     units_sold: int = Field(default=0, ge=0, alias="Units Sold")

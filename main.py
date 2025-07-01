@@ -74,13 +74,19 @@ def run_process():
     print(f"Found {len(dataframes)} reports. Concatenating...")
     combined_df = pd.concat(dataframes, ignore_index=True)
 
-    # 3. Add metadata and ensure the structure matches our Pydantic schema
+    # 3. Create the unique ID and add metadata
+    # This is the most efficient place to create the ID, after all rows are combined.
+    # We use a vectorized operation which is extremely fast.
+    print("Generating unique IDs for each record...")
+    combined_df["id"] = combined_df["channel"] + "-" + combined_df["sku"]
     combined_df["last_updated"] = date.today()
 
+    # 4. Reorder columns and ensure structure matches our Pydantic schema
+    # The Pydantic model's field order is now the source of truth for our column order.
     final_columns = list(InventoryItem.model_fields.keys())
     combined_df = combined_df.reindex(columns=final_columns).fillna(0)
 
-    # 4. Validate data against our Pydantic schema for ultimate data integrity
+    # 5. Validate data against our Pydantic schema
     try:
         print("Validating data against schema...")
         validated_data = [
@@ -93,21 +99,22 @@ def run_process():
         print(e)
         return
 
-    # 5. Final Sorting
+    # 6. Final Sorting
     combined_df["channel"] = pd.Categorical(
         combined_df["channel"], categories=settings.CHANNEL_ORDER, ordered=True
     )
     combined_df["sku"] = pd.Categorical(
         combined_df["sku"], categories=settings.SKU_ORDER, ordered=True
     )
-
-    # The sort order in the list determines priority: first by channel, then by SKU.
     combined_df = combined_df.sort_values(["channel", "sku"]).reset_index(drop=True)
 
-    print("\n--- Final Normalized Report ---")
+    # Re-apply the desired column order after sorting, as sorting can sometimes change it.
+    combined_df = combined_df[final_columns]
+
+    print("\n--- Final Normalized Report with IDs ---")
     print(combined_df.to_string())
 
-    # 6. Save outputs and post to webhook
+    # 7. Save outputs and post to webhook
     data_handler.save_outputs(combined_df, validated_data)
     data_handler.post_to_webhook(validated_data)
 
