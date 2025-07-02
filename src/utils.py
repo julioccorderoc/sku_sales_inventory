@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 import pandas as pd
+import re
 
 
 def get_date_str_for_filename() -> str:
@@ -28,10 +29,6 @@ def load_csv(file_path: Path, skiprows: int = 0) -> pd.DataFrame | None:
         return pd.read_csv(file_path, encoding="utf-8-sig", skiprows=skiprows)
 
     except UnicodeDecodeError:
-        # This block only runs if the first attempt failed specifically due to encoding.
-        print(
-            f"INFO: UTF-8 decoding failed for {file_path.name}. Retrying with 'latin-1'."
-        )
         try:
             # Attempt 2: Fallback to latin-1. This encoding can read any byte,
             # so it's a very safe fallback to prevent crashes.
@@ -55,3 +52,43 @@ def load_csv(file_path: Path, skiprows: int = 0) -> pd.DataFrame | None:
             f"ERROR: An unexpected error occurred while reading {file_path.name}. Reason: {e_general}"
         )
         return None
+
+
+def find_latest_report(directory: Path, prefix: str) -> tuple[Path, date] | None:
+    """
+    Finds the most recent report file for a given prefix in a directory.
+    - First, it looks for today's file.
+    - If not found, it scans for the latest file based on filename date.
+    - Returns a tuple of (path, date_object) or None if no file is found.
+    """
+    # Try to find today's file first for efficiency
+    today = datetime.now()
+    today_str = today.strftime("%b%d").lower()
+    today_file = directory / f"{prefix}{today_str}.csv"
+    if today_file.exists():
+        return (today_file, today.date())
+
+    # If today's file isn't found, scan the directory for all matching files
+    pattern = re.compile(rf"{prefix}(\w+\d+)\.csv")
+    found_files = []
+
+    for f in directory.iterdir():
+        match = pattern.match(f.name)
+        if match:
+            date_str = match.group(1)
+            try:
+                # We need to add the current year for strptime to work correctly
+                file_date = datetime.strptime(
+                    f"{date_str}{today.year}", "%b%d%Y"
+                ).date()
+                found_files.append((f, file_date))
+            except ValueError:
+                # Handle cases where the date format might be wrong
+                continue
+
+    if not found_files:
+        return None
+
+    # Sort files by date, newest first, and return the top one
+    found_files.sort(key=lambda x: x[1], reverse=True)
+    return found_files[0]

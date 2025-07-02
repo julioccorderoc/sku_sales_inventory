@@ -1,6 +1,8 @@
 import pandas as pd
 import requests
 import json
+from typing import Optional
+from datetime import date
 
 from . import settings
 from . import utils
@@ -36,23 +38,31 @@ def save_outputs(df: pd.DataFrame, validated_data: list[InventoryItem]):
         print("INFO: Skipping JSON file save as per configuration.")
 
 
-def post_to_webhook(validated_data: list[InventoryItem]):
-    """Posts the validated list of Pydantic models to the webhook."""
+def post_to_webhook(
+    validated_data: list[InventoryItem], status_summary: dict[str, Optional[date]]
+):
+    """
+    Posts the validated data AND the status summary to the webhook.
+    """
     if not settings.WEBHOOK_URL:
         print("⚠️ WEBHOOK_URL not set. Skipping webhook post.")
         return
 
-    print(f"🚀 Posting data to webhook: {settings.WEBHOOK_URL}")
+    print(f"🚀 Posting data and summary to webhook: {settings.WEBHOOK_URL}")
 
-    # Use model_dump(by_alias=True) to create a list of dicts with the correct JSON keys
-    json_payload = [
-        item.model_dump(mode="json", by_alias=True) for item in validated_data
-    ]
-    payload = {"reportData": json_payload}
+    payload = {
+        "reportData": [
+            item.model_dump(mode="json", by_alias=True) for item in validated_data
+        ],
+        "statusSummary": {
+            channel: dt.isoformat() if dt else None
+            for channel, dt in status_summary.items()
+        },
+    }
 
     try:
         response = requests.post(settings.WEBHOOK_URL, json=payload, timeout=15)
         response.raise_for_status()
-        print("✅ Data successfully posted to webhook.")
+        print("✅ Data and summary successfully posted to webhook.")
     except requests.exceptions.RequestException as e:
         print(f"❌ Error posting to webhook: {e}")
