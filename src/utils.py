@@ -57,38 +57,51 @@ def load_csv(file_path: Path, skiprows: int = 0) -> pd.DataFrame | None:
 def find_latest_report(directory: Path, prefix: str) -> tuple[Path, date] | None:
     """
     Finds the most recent report file for a given prefix in a directory.
-    - First, it looks for today's file.
-    - If not found, it scans for the latest file based on filename date.
-    - Returns a tuple of (path, date_object) or None if no file is found.
+    Target format: prefix + "YYYY-MM-DD.csv" (e.g., "AWD_Report_2025-12-15.csv")
     """
-    # Try to find today's file first for efficiency
-    today = datetime.now()
-    today_str = today.strftime("%b%d").lower()
+    # 1. Optimistic Check: Try to find today's file immediately (O(1) operation)
+    today = date.today()
+    today_str = today.isoformat()  # Returns 'YYYY-MM-DD'
     today_file = directory / f"{prefix}{today_str}.csv"
-    if today_file.exists():
-        return (today_file, today.date())
 
-    # If today's file isn't found, scan the directory for all matching files
-    pattern = re.compile(rf"{prefix}(\w+\d+)\.csv")
+    if today_file.exists():
+        return (today_file, today)
+
+    # 2. Scanning: If today's file is missing, scan the directory
+    # We use re.escape(prefix) to prevent regex injection if prefix contains special chars
+    pattern = re.compile(rf"^{re.escape(prefix)}(\d{{4}}-\d{{2}}-\d{{2}})\.csv$")
     found_files = []
 
     for f in directory.iterdir():
+        # Skip directories, looking only at files
+        if not f.is_file():
+            continue
+
         match = pattern.match(f.name)
         if match:
             date_str = match.group(1)
             try:
-                # We need to add the current year for strptime to work correctly
-                file_date = datetime.strptime(
-                    f"{date_str}{today.year}", "%b%d%Y"
-                ).date()
+                # ISO formats parse reliably without complex format strings
+                file_date = date.fromisoformat(date_str)
                 found_files.append((f, file_date))
             except ValueError:
-                # Handle cases where the date format might be wrong
+                # Malformed date strings (e.g. 2025-13-99) are ignored
                 continue
 
     if not found_files:
         return None
 
-    # Sort files by date, newest first, and return the top one
+    # 3. Sort by date descending (newest first) and return the winner
+    # Logic: Tuple comparison uses the second element (date)
     found_files.sort(key=lambda x: x[1], reverse=True)
     return found_files[0]
+
+
+def clean_money(val) -> float:
+    """Removes $ and , from currency strings."""
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        clean = val.replace("$", "").replace(",", "").strip()
+        return float(clean) if clean else 0.0
+    return 0.0

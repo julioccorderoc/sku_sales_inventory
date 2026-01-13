@@ -1,12 +1,11 @@
 import pandas as pd
+from datetime import date
 from pydantic import ValidationError
 
 from src import parsers, data_handler, settings, utils
 from src.schemas import InventoryItem
 
 # --- Parser Registry ---
-# The single source of truth for all our data sources.
-# To add a report, just add a new entry here. It's that simple.
 PARSER_REGISTRY = [
     {
         "channel_name": "FBA",
@@ -17,7 +16,8 @@ PARSER_REGISTRY = [
         "channel_name": "Flexport",
         "parser_func": parsers.parse_flexport_reports,
         "required_files": {
-            "inventory": settings.FLEXPORT_INVENTORY_FILENAME_PREFIX,
+            "levels": settings.FLEXPORT_LEVELS_FILENAME_PREFIX,
+            "orders": settings.FLEXPORT_ORDERS_FILENAME_PREFIX,
             "inbound": settings.FLEXPORT_INBOUND_FILENAME_PREFIX,
         },
     },
@@ -37,22 +37,21 @@ PARSER_REGISTRY = [
 ]
 
 
-def run_process():
-    """
-    Main orchestration function with resilient file finding and status summary.
-    It now centrally manages the 'last_updated' date for each record.
-    """
+def run_inventory_update():
     print("--- Starting Daily Inventory Report Process ---")
 
     dataframes = []
-    status_summary = {}  # To hold the final status summary for the webhook
+    status_summary = {}
+
+    # We need system date for the ID prefix (just like Sales)
+    system_date_str = date.today().strftime("%Y%m%d")
 
     for parser_config in PARSER_REGISTRY:
         source_name = parser_config["channel_name"]
         print(f"\n-- Processing Source: {source_name} --")
 
         file_paths = {}
-        report_dates = {}  # To temporarily store the date of each file
+        report_dates = {}
         all_files_found = True
 
         for file_key, prefix in parser_config["required_files"].items():
@@ -62,26 +61,19 @@ def run_process():
                 path, report_date = found_file_info
                 file_paths[file_key] = path
                 report_dates[file_key] = report_date
-                print(
-                    f"  > Found '{file_key}' report: {path.name} (Date: {report_date})"
-                )
+                print(f"  > Found '{file_key}': {path.name} ({report_date})")
             else:
-                # Handle optional files gracefully (like Flexport Inbound)
                 if file_key == "inbound" and source_name == "Flexport":
-                    print(
-                        f"  > INFO: Optional file not found for '{file_key}' with prefix '{prefix}'. Continuing."
-                    )
+                    print(f"  > INFO: Optional '{file_key}' missing. Continuing.")
                     file_paths[file_key] = None
                 else:
-                    print(
-                        f"  > ERROR: Required file not found for '{file_key}' with prefix '{prefix}'"
-                    )
+                    print(f"  > ERROR: Required '{file_key}' missing.")
                     all_files_found = False
                     break
 
         if not all_files_found:
-            print(f"Skipping source '{source_name}' due to missing required files.")
-            # We will populate the status summary with null for the channels this parser would have created.
+            print(f"Skipping source '{source_name}' due to missing files.")
+            # Populate summary with None
             if source_name == "Flexport":
                 status_summary["DTC"] = None
                 status_summary["Reserve"] = None
@@ -89,83 +81,110 @@ def run_process():
                 status_summary[source_name] = None
             continue
 
-        # Run the parser. It returns a dataframe WITHOUT the 'last_updated' column.
+        # Run Parser
         df = parser_config["parser_func"](file_paths)
         if df is not None and not df.empty:
-            # --- CENTRALLY ASSIGN 'last_updated' DATE ---
-            # Determine the primary date for this batch of data.
-            # Use the 'inventory' date for multi-file sources, otherwise 'primary'.
-            primary_date = report_dates.get("inventory") or report_dates.get("primary")
-            df["last_updated"] = primary_date
-
+            # --- 1. Assign Date Column ---
+            # (Renamed from 'last_updated' to 'Date')
+            primary_date = (
+                report_dates.get("levels")
+                or report_dates.get("inventory")
+                or report_dates.get("primary")
+            )
+            df["Date"] = primary_date
             dataframes.append(df)
 
-            # --- Populate the status summary ---
-            # The date is the same for all channels produced by this parser run.
             for ch in df["channel"].unique():
                 status_summary[ch] = primary_date
 
     if not dataframes:
-        print("\n❌ No dataframes were successfully parsed. Aborting process.")
-        # We can still send the summary to notify that nothing was updated.
-        data_handler.post_to_webhook([], status_summary)
+        print("\n❌ No dataframes parsed.")
+        data_handler.post_to_webhook([], status_summary, "inventory")
         return
 
-    # --- Combine, Validate, and Sort ---
+    # --- Combine ---
     print("\nConcatenating reports...")
     combined_df = pd.concat(dataframes, ignore_index=True)
 
-    # Generate the unique ID
-    print("Generating unique IDs for each record...")
+    # --- 2. Generate IDs (New Structure) ---
+    print("Generating IDs...")
+
+    # ID: YYYYMMDD_Channel_SKU
     combined_df["id"] = (
-        combined_df["channel"].astype(str) + "-" + combined_df["sku"].astype(str)
+        system_date_str
+        + "_"
+        + combined_df["channel"].astype(str)
+        + "_"
+        + combined_df["sku"].astype(str)
     )
 
-    # Reorder columns to match Pydantic model for validation
-    final_columns = list(InventoryItem.model_fields.keys())
-    combined_df = combined_df.reindex(columns=final_columns)
+    # SKU_Channel_ID: Channel_SKU
+    combined_df["sku_channel_id"] = (
+        combined_df["channel"].astype(str) + "_" + combined_df["sku"].astype(str)
+    )
 
-    # Validate data
+    # --- 3. Filter Columns & Validate ---
+    # Get column names from Schema aliases
+    final_columns = [
+        field.alias or name for name, field in InventoryItem.model_fields.items()
+    ]
+
+    # Ensure all columns exist (fill missing with default if needed, though parsers should handle it)
+    combined_df = combined_df.rename(
+        columns={
+            "channel": "Channel",
+            "sku": "SKU",
+            "units_sold": "Units Sold",
+            "inventory": "Inventory",
+            "inbound": "Inbound",
+        }
+    )
+    combined_df = combined_df[final_columns]
+
     try:
         print("Validating data against schema...")
         validated_data = [
-            InventoryItem(**row)  # type: ignore
-            for row in combined_df.to_dict("records")
+            InventoryItem(**row) for row in combined_df.to_dict("records")
         ]
         print("✅ Data validation successful.")
     except ValidationError as e:
-        print("❌ Data validation failed! The data does not match the required schema.")
+        print("❌ Data validation failed!")
         print(e)
         return
 
-    # Final Sorting
-    combined_df["channel"] = pd.Categorical(
-        combined_df["channel"], categories=settings.CHANNEL_ORDER, ordered=True
+    # --- 4. Final Sort & Display ---
+    # Create DF from validated data for nice printing
+    display_df = pd.DataFrame(
+        [item.model_dump(by_alias=True) for item in validated_data]
     )
-    combined_df["sku"] = pd.Categorical(
-        combined_df["sku"], categories=settings.SKU_ORDER, ordered=True
+
+    display_df["Channel"] = pd.Categorical(
+        display_df["Channel"], categories=settings.CHANNEL_ORDER, ordered=True
     )
-    combined_df = combined_df.sort_values(["channel", "sku"]).reset_index(drop=True)
-    combined_df = combined_df[final_columns]
+    display_df["SKU"] = pd.Categorical(
+        display_df["SKU"], categories=settings.SKU_ORDER, ordered=True
+    )
+    display_df = display_df.sort_values(["Channel", "SKU"]).reset_index(drop=True)
 
     print("\n--- Final Normalized Report ---")
-    print(combined_df.to_string())
+    print(
+        display_df.drop(columns=["id", "sku_channel_id"]).to_string()
+    )  # Drop IDs just for cleaner terminal print
 
-    # --- Save and Post Final Payload ---
+    # --- 5. Save & Post ---
     print("\n--- Final Status Summary ---")
-    # Ensure all channels are in the summary, even if their parser failed.
     for ch in settings.CHANNEL_ORDER:
         if ch not in status_summary:
             status_summary[ch] = None
+        date_val = status_summary.get(ch)
+        print(f"{ch}: {date_val.isoformat() if date_val else 'No data'}")
 
-    for channel, date in status_summary.items():
-        print(f"{channel}: {date.isoformat() if date else 'No data'}")
+    data_handler.save_outputs(validated_data, "inventory_report")
 
-    data_handler.save_outputs(combined_df, validated_data)
-    data_handler.post_to_webhook(validated_data, status_summary)
+    data_handler.post_to_webhook(
+        validated_data=validated_data,
+        metadata=status_summary,
+        report_type="inventory",
+    )
 
     print("\n--- Process Finished Successfully ---")
-
-
-if __name__ == "__main__":
-    run_process()
