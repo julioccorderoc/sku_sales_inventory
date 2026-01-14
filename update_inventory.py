@@ -106,6 +106,50 @@ def run_inventory_update():
     print("\nConcatenating reports...")
     combined_df = pd.concat(dataframes, ignore_index=True)
 
+    # --- 1.1 Normalize Data (Zero-Filling) ---
+    print("\n--- Normalizing Data (Zero-Filling) ---")
+    
+    # Identify all channels processed in this run
+    processed_channels = combined_df["channel"].unique()
+    master_skus = [str(x) for x in settings.SKU_ORDER]
+    
+    # Get map of Channel -> Date from existing data
+    channel_dates = combined_df.groupby("channel")["Date"].first().to_dict()
+    
+    # Generate template: Channel + SKU -> Date
+    template_rows = []
+    
+    # We want to ensure that for every processed channel, we have an entry for every SKU
+    for ch in processed_channels:
+        # Default to system date if somehow missing
+        date_for_channel = channel_dates.get(ch, date.today())
+        
+        for sku in master_skus:
+            template_rows.append({
+                "channel": ch, 
+                "sku": sku, 
+                "Date": date_for_channel
+            })
+            
+    template_df = pd.DataFrame(template_rows)
+    
+    # Merge Actual Data into Template
+    # We'll Left Merge on [channel, sku, Date] to keep the template shape
+    merged_df = pd.merge(
+        template_df, 
+        combined_df, 
+        on=["channel", "sku", "Date"], 
+        how="left"
+    )
+    
+    # Fill NuNs with 0 for metrics
+    merged_df["units_sold"] = merged_df["units_sold"].fillna(0)
+    merged_df["inventory"] = merged_df["inventory"].fillna(0)
+    merged_df["inbound"] = merged_df["inbound"].fillna(0)
+    
+    # Replace combined_df with the normalized version
+    combined_df = merged_df
+
     # --- 2. Generate IDs (New Structure) ---
     print("Generating IDs...")
 
@@ -134,7 +178,7 @@ def run_inventory_update():
         columns={
             "channel": "Channel",
             "sku": "SKU",
-            "units_sold": "Units Sold",
+            "units_sold": "Units",
             "inventory": "Inventory",
             "inbound": "Inbound",
         }

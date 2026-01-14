@@ -238,40 +238,7 @@ AMAZON_SKU_MAP = {
 }
 
 
-# The expected list of Master SKUs to ensure full reporting
-MASTER_SALES_SKU_LIST = [
-    "1001",
-    "2001",
-    "3001",
-    "4001",
-    "5001",
-    "6001",
-    "8001",
-    "9001",
-    "PH1001",
-    "PH2001",
-    "PH3001",
-    "PH4001",
-    "PH5001",
-    "PH6001",
-    "PH8001",
-    "PH9001",
-    "10012P",
-    "20012P",
-    "30012P",
-    "40012P",
-    "50012P",
-    "60012P",
-    "80012P",
-    "90012P",
-    "PH10012P",
-    "PH20012P",
-    "PH30012P",
-    "PH40012P",
-    "PH50012P",
-    "PH80012P",
-    "PH90012P",
-]
+
 
 
 # --- Shared Business Logic ---

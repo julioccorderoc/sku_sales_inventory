@@ -16,7 +16,7 @@ class InventoryItem(BaseModel):
     sku: str = Field(..., alias="SKU")
     channel: str = Field(..., alias="Channel")
 
-    units_sold: int = Field(default=0, ge=0, alias="Units Sold")
+    units: int = Field(default=0, ge=0, alias="Units")
     inventory: int = Field(default=0, ge=0, alias="Inventory")
     inbound: int = Field(default=0, ge=0, alias="Inbound")
 
