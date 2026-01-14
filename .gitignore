@@ -13,3 +13,4 @@ wheels/
 # files directories
 input/
 output/
+.DS_Store
