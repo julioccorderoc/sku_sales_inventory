@@ -17,7 +17,7 @@ def get_date_suffix_for_filename() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
-def load_csv(file_path: Path, skiprows: int = 0) -> pd.DataFrame | None:
+def load_csv(file_path: Path, skiprows: int = 0, **kwargs) -> pd.DataFrame | None:
     """
     A more robust CSV loader with a multi-stage encoding fallback.
     It will attempt to read a file in the following order:
@@ -26,13 +26,13 @@ def load_csv(file_path: Path, skiprows: int = 0) -> pd.DataFrame | None:
     """
     try:
         # Attempt 1: Try the most common and correct encoding first.
-        return pd.read_csv(file_path, encoding="utf-8-sig", skiprows=skiprows)
+        return pd.read_csv(file_path, encoding="utf-8-sig", skiprows=skiprows, **kwargs)
 
     except UnicodeDecodeError:
         try:
             # Attempt 2: Fallback to latin-1. This encoding can read any byte,
             # so it's a very safe fallback to prevent crashes.
-            return pd.read_csv(file_path, encoding="latin-1", skiprows=skiprows)
+            return pd.read_csv(file_path, encoding="latin-1", skiprows=skiprows, **kwargs)
         except Exception as e_latin1:
             # This is a defensive catch-all in case the latin-1 read also fails for
             # a non-encoding reason (e.g., malformed CSV).
