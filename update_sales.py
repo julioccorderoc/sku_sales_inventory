@@ -53,11 +53,28 @@ def run_sales_update():
         print(f"  > Found: {path.name} (File Date: {file_date})")
 
         # Parse
-        df_source, bundle_stats = parser["func"]({"primary": path})
+        df_source, bundle_stats, raw_count = parser["func"]({"primary": path})
 
         if df_source is not None and not df_source.empty:
             # Add the File Date to the DataFrame
             df_source["Date"] = file_date
+
+            # Define SKUs found in this channel
+            found_skus = set(df_source["SKU"].astype(str))
+            # Calculate missing SKUs (from Master List)
+            # Note: We do NOT count Bundles here as "missing" since they are calculated
+            missing_skus = [sku for sku in settings.SKU_ORDER if sku not in found_skus]
+            
+            # Print Enhanced Report
+            print(f"  > 📊 Stats for {parser['channel']}:")
+            print(f"    - Rows Analyzed: {raw_count}")
+            print(f"    - Individual SKUs Found: {len(found_skus)}")
+            
+            if missing_skus:
+                print(f"    - ⚠️  Missing SKUs ({len(missing_skus)}): {', '.join(missing_skus)}")
+            else:
+                print("    - ✅ All Master SKUs found.")
+
 
             # A. Handle Standard Parsers
             if parser["channel"] != "Mixed":
@@ -65,7 +82,7 @@ def run_sales_update():
                 all_data_frames.append(df_source)
                 processed_channels.add(parser["channel"])
 
-                # Bundle Row for this channel (Using File Date)
+                # Bundle Row for this channel
                 bundle_rows.append(
                     {
                         "SKU": "Bundles",
@@ -82,6 +99,9 @@ def run_sales_update():
                 unique_chans = df_source["Channel"].unique()
                 processed_channels.update(unique_chans)
 
+                # For Mixed, we might want to break down stats per sub-channel,
+                # but broadly keeping it at source level is okay for now as requested.
+                
                 for bucket, stats in bundle_stats.items():
                     if bucket in unique_chans or stats["Units"] > 0:
                         processed_channels.add(bucket)
@@ -89,17 +109,21 @@ def run_sales_update():
                             {
                                 "SKU": "Bundles",
                                 "Channel": bucket,
+                                # Use file date for bundles
                                 "Date": file_date,
                                 "Units": stats["Units"],
                                 "Revenue": stats["Revenue"],
                             }
                         )
 
-            print(f"  > Processed {len(df_source)} SKU records.")
-
     if not all_data_frames:
         print("❌ No data found from any source.")
         return
+
+    # Add Bundle Rows to the list of dataframes BEFORE concatenation
+    # This ensures they are part of the 'full_df' and handled in normalization
+    if bundle_rows:
+        all_data_frames.append(pd.DataFrame(bundle_rows))
 
     # 2. CONCATENATE
     full_df = pd.concat(all_data_frames, ignore_index=True)
@@ -107,7 +131,8 @@ def run_sales_update():
     # 3. NORMALIZE (Zero Filling)
     print("\n--- Normalizing Data (Zero-Filling) ---")
 
-    master_skus = [str(x) for x in settings.SKU_ORDER]
+    # STRICT NORMALIZATION: Add "Bundles" to the required SKU list
+    master_skus = [str(x) for x in settings.SKU_ORDER] + ["Bundles"]
     channels_list = list(processed_channels)
 
     # We cannot simply cross-join everything because different channels might have different Dates.
@@ -131,14 +156,7 @@ def run_sales_update():
     merged_df = pd.merge(
         template_df, full_df, on=["SKU", "Channel", "Date"], how="left"
     )
-    merged_df = merged_df.fillna(0)
-
-    # 4. ADD BUNDLES
-    if bundle_rows:
-        bundle_df = pd.DataFrame(bundle_rows)
-        final_df = pd.concat([bundle_df, merged_df], ignore_index=True)
-    else:
-        final_df = merged_df
+    final_df = merged_df.fillna(0)
 
     # 5. FORMATTING & IDs
     print("--- Generating IDs and Formatting ---")
@@ -149,17 +167,20 @@ def run_sales_update():
 
     # ID Generation: YYYYMMDD_Channel_SKU
     # We use %Y%m%d (e.g. 20251219) for the compact ID
+    # FIX: Replace spaces with underscores in Channel name (e.g. "TikTok Shop" -> "TikTok_Shop")
     final_df["id"] = (
         system_date.strftime("%Y%m%d")
         + "_"
-        + final_df["Channel"].astype(str)
+        + final_df["Channel"].astype(str).str.replace(" ", "_")
         + "_"
         + final_df["SKU"].astype(str)
     )
 
     # sku_channel_id: Channel_SKU
     final_df["sku_channel_id"] = (
-        final_df["Channel"].astype(str) + "_" + final_df["SKU"].astype(str)
+        final_df["Channel"].astype(str).str.replace(" ", "_")
+        + "_"
+        + final_df["SKU"].astype(str)
     )
 
     # Final Column Order
