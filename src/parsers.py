@@ -44,19 +44,22 @@ def parse_walmart_sales_report(file_paths: dict):
     # Returns: (DataFrame, BundleStatsDict)
     df = load_csv(file_paths["primary"])
     if df is None:
-        return None, {"Units": 0, "Revenue": 0}
+        return None, {"Units": 0, "Revenue": 0}, 0
 
+    raw_count = len(df)
     df = df.rename(columns={"Units_Sold": "Units", "GMV": "Revenue"})
     df["Revenue"] = df["Revenue"].apply(clean_money)
 
     grouped = df.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
-    return grouped, {"Units": 0, "Revenue": 0}
+    return grouped, {"Units": 0, "Revenue": 0}, raw_count
 
 
 def parse_amazon_sales_report(file_paths: dict):
     df = load_csv(file_paths["primary"])
     if df is None:
-        return None, {"Units": 0, "Revenue": 0}
+        return None, {"Units": 0, "Revenue": 0}, 0
+    
+    raw_count = len(df)
 
     expanded_rows = []
     bundle_units = 0
@@ -79,17 +82,19 @@ def parse_amazon_sales_report(file_paths: dict):
             bundle_rev += clean_money(row["Net sales"])
 
     if not expanded_rows:
-        return None, {"Units": 0, "Revenue": 0}
+        return None, {"Units": 0, "Revenue": 0}, raw_count
 
     df_norm = pd.DataFrame(expanded_rows)
     grouped = df_norm.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
-    return grouped, {"Units": bundle_units, "Revenue": bundle_rev}
+    return grouped, {"Units": bundle_units, "Revenue": bundle_rev}, raw_count
 
 
 def parse_tiktok_sales_report(file_paths: dict):
-    df = load_csv(file_paths["primary"], skiprows=2)
+    df = load_csv(file_paths["primary"], skiprows=2, sep=";")
     if df is None:
-        return None, {"Units": 0, "Revenue": 0}
+        return None, {"Units": 0, "Revenue": 0}, 0
+
+    raw_count = len(df)
 
     expanded_rows = []
     bundle_units = 0
@@ -107,18 +112,20 @@ def parse_tiktok_sales_report(file_paths: dict):
             bundle_rev += clean_money(row["GMV"])
 
     if not expanded_rows:
-        return None, {"Units": 0, "Revenue": 0}
+        return None, {"Units": 0, "Revenue": 0}, raw_count
 
     df_norm = pd.DataFrame(expanded_rows)
     grouped = df_norm.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
-    return grouped, {"Units": bundle_units, "Revenue": bundle_rev}
+    return grouped, {"Units": bundle_units, "Revenue": bundle_rev}, raw_count
 
 
 def parse_shopify_sales_report(file_paths: dict):
     # Returns (DataFrame with 'Channel' col, BundleStatsDict keyed by channel)
     df = load_csv(file_paths["primary"])
     if df is None:
-        return None, {}
+        return None, {}, 0
+    
+    raw_count = len(df)
 
     df = df[df["Sales channel"] != "Draft Orders"]
     df = df[(df["Net sales"] > 0) | (df["Quantity ordered"] > 0)]
@@ -160,14 +167,14 @@ def parse_shopify_sales_report(file_paths: dict):
             bundle_stats[bucket]["Revenue"] += clean_money(row["Net sales"])
 
     if not all_expanded:
-        return None, bundle_stats
+        return None, bundle_stats, raw_count
 
     # Group by SKU AND Channel
     df_all = pd.DataFrame(all_expanded)
     grouped = (
         df_all.groupby(["SKU", "Channel"])[["Units", "Revenue"]].sum().reset_index()
     )
-    return grouped, bundle_stats
+    return grouped, bundle_stats, raw_count
 
 
 def _normalize_and_aggregate_amazon_report(
