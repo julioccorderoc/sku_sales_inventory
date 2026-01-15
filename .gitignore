@@ -14,3 +14,4 @@ wheels/
 input/
 output/
 .DS_Store
+logs/
