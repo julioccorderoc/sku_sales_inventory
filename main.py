@@ -1,40 +1,43 @@
+import logging
 import time
 from datetime import datetime
 
-from update_inventory import run_inventory_update as run_inventory_job
-from update_sales import run_sales_update as run_sales_job
+from src.logger import setup_logger
+from src.pipelines.inventory import InventoryPipeline
+from src.pipelines.sales import SalesPipeline
+
+# Set up global logger
+logger = setup_logger()
 
 
 def run_master_pipeline():
     start_time = time.time()
-    print(
+    logger.info(
         f"🚀 STARTING MASTER PIPELINE | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
-    print("=" * 60)
+    logger.info("=" * 60)
 
     # --- STEP 1: INVENTORY UPDATE ---
-    print("\n📦 STEP 1/2: INVENTORY REPORT")
-    print("-" * 30)
     try:
-        run_inventory_job()
+        inventory_job = InventoryPipeline()
+        inventory_job.run()
     except Exception as e:
-        print(f"\n❌ CRITICAL ERROR in Inventory Process: {e}")
+        logger.error(f"\n❌ CRITICAL ERROR in Inventory Process: {e}", exc_info=True)
 
-    print("\n" + "=" * 60)
+    logger.info("\n" + "=" * 60)
 
     # --- STEP 2: SALES AGGREGATION ---
-    print("\n💰 STEP 2/2: SALES REPORT")
-    print("-" * 30)
     try:
-        run_sales_job()
+        sales_job = SalesPipeline()
+        sales_job.run()
     except Exception as e:
-        print(f"\n❌ CRITICAL ERROR in Sales Process: {e}")
+        logger.error(f"\n❌ CRITICAL ERROR in Sales Process: {e}", exc_info=True)
 
     # --- SUMMARY ---
     elapsed = time.time() - start_time
-    print("\n" + "=" * 60)
-    print(f"✅ MASTER PIPELINE FINISHED in {elapsed:.2f} seconds.")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info(f"✅ MASTER PIPELINE FINISHED in {elapsed:.2f} seconds.")
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":

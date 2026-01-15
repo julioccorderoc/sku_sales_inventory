@@ -2,6 +2,9 @@ from datetime import datetime, date
 from pathlib import Path
 import pandas as pd
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_date_str_for_filename() -> str:
@@ -36,19 +39,19 @@ def load_csv(file_path: Path, skiprows: int = 0, **kwargs) -> pd.DataFrame | Non
         except Exception as e_latin1:
             # This is a defensive catch-all in case the latin-1 read also fails for
             # a non-encoding reason (e.g., malformed CSV).
-            print(
+            logger.error(
                 f"ERROR: Could not read {file_path.name} even with latin-1. Reason: {e_latin1}"
             )
             return None
 
     except FileNotFoundError:
         # Handle the case where the file doesn't exist separately for a clear message.
-        print(f"INFO: Report not found at {file_path}, skipping.")
+        logger.info(f"Report not found at {file_path}, skipping.")
         return None
 
     except Exception as e_general:
         # Catch any other unexpected errors during the initial read.
-        print(
+        logger.error(
             f"ERROR: An unexpected error occurred while reading {file_path.name}. Reason: {e_general}"
         )
         return None

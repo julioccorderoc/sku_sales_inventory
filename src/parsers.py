@@ -4,6 +4,9 @@ from pathlib import Path
 
 from . import settings
 from .utils import load_csv, clean_money
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # --- Helper for Sales Parsing ---
@@ -16,7 +19,7 @@ def _process_bundled_row(row, mapping_dict, key_col, qty_col, rev_col, source_na
     if source_key not in mapping_dict:
         # Filter out NaNs or empty strings before alerting
         if source_key and source_key.lower() != "nan":
-            print(f"⚠️  ALERT: Unmapped SKU found in {source_name}: '{source_key}'")
+            logger.warning(f"⚠️  ALERT: Unmapped SKU found in {source_name}: '{source_key}'")
         return [], False
 
     target_skus = mapping_dict[source_key]
@@ -233,7 +236,7 @@ def parse_fba_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     df_normalized["channel"] = "FBA"
     df_normalized = df_normalized.fillna(0)
 
-    print(f"✅ Parsed {file_paths['primary'].name} successfully.")
+    logger.info(f"✅ Parsed {file_paths['primary'].name} successfully.")
     return df_normalized
 
 
@@ -262,7 +265,7 @@ def parse_awd_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     df_normalized["units_sold"] = 0  # No sales data in this report
     df_normalized = df_normalized.fillna(0)
 
-    print(f"✅ Parsed {file_paths['primary'].name} successfully.")
+    logger.info(f"✅ Parsed {file_paths['primary'].name} successfully.")
     return df_normalized
 
 
@@ -403,7 +406,7 @@ def parse_flexport_reports(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     df_normalized = pd.concat([dtc_final, reserve_final], ignore_index=True)
     df_normalized = df_normalized.fillna(0)
 
-    print("✅ Parsed Flexport (DTC & Reserve) using new Levels/Orders reports.")
+    logger.info("✅ Parsed Flexport (DTC & Reserve) using new Levels/Orders reports.")
     return df_normalized
 
 
@@ -446,5 +449,5 @@ def parse_wfs_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     df_normalized["channel"] = "WFS"
     df_normalized = df_normalized.fillna(0)  # Fill NaNs for any missing values with 0
 
-    print("✅ Parsed Walmart/WFS reports successfully.")
+    logger.info("✅ Parsed Walmart/WFS reports successfully.")
     return df_normalized

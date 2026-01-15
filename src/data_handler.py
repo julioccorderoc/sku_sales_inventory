@@ -1,10 +1,13 @@
 import pandas as pd
 import requests
 import json
+import logging
 from typing import Any
 from datetime import date, datetime
 
 from . import settings
+
+logger = logging.getLogger(__name__)
 
 
 def save_outputs(validated_data: list[Any], filename_base: str):
@@ -27,19 +30,19 @@ def save_outputs(validated_data: list[Any], filename_base: str):
     ]
 
     if not data_dicts:
-        print("⚠️ No data to save.")
+        logger.warning("⚠️ No data to save.")
         return
 
     # 2. Save CSV
     df = pd.DataFrame(data_dicts)
     df.to_csv(csv_path, index=False)
-    print(f"📁 CSV saved to: {csv_path}")
+    logger.info(f"📁 CSV saved to: {csv_path}")
 
     # 3. Save JSON (Conditionally)
     if settings.SAVE_JSON_OUTPUT:
         with open(json_path, "w") as f:
             json.dump(data_dicts, f, indent=2)
-        print(f"📁 JSON saved to: {json_path}")
+        logger.info(f"📁 JSON saved to: {json_path}")
 
 
 def post_to_webhook(
@@ -49,10 +52,10 @@ def post_to_webhook(
     Posts data to the webhook with a discriminator field ('reportType').
     """
     if not settings.WEBHOOK_URL:
-        print("⚠️ WEBHOOK_URL not set. Skipping webhook post.")
+        logger.warning("⚠️ WEBHOOK_URL not set. Skipping webhook post.")
         return
 
-    print(f"🚀 Posting '{report_type}' data to webhook: {settings.WEBHOOK_URL}")
+    logger.info(f"🚀 Posting '{report_type}' data to webhook: {settings.WEBHOOK_URL}")
 
     # 1. Process Metadata (Handle Dates generically)
     # This preserves your original logic for Inventory dates but allows strings for Sales
@@ -75,6 +78,6 @@ def post_to_webhook(
     try:
         response = requests.post(settings.WEBHOOK_URL, json=payload, timeout=60)
         response.raise_for_status()
-        print(f"✅ {report_type.capitalize()} data successfully posted.")
+        logger.info(f"✅ {report_type.capitalize()} data successfully posted.")
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error posting to webhook: {e}")
+        logger.error(f"❌ Error posting to webhook: {e}")
