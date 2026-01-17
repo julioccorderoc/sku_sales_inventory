@@ -139,8 +139,8 @@ class SalesPipeline(DataPipeline):
         logger.info("\n--- Normalizing Data (Zero-Filling) ---")
 
         master_skus = [str(x) for x in settings.SKU_ORDER]
-        # Ensure we cover all channels found, even if some only had Bundles
-        channels_list = list(self.processed_channels)
+        # FORCE: Always utilize the full list of configured sales channels
+        channels_list = settings.SALES_CHANNEL_ORDER
 
         # Get map of Channel -> Date from existing data
         channel_dates = full_df.groupby("Channel")["Date"].first().to_dict()
@@ -148,7 +148,7 @@ class SalesPipeline(DataPipeline):
         # Generate template: Channel + SKU -> Date
         template_rows = []
         for ch in channels_list:
-            # Default to system date if channel somehow missing from map (fallback)
+            # Default to system date if channel missing from map (fallback for zero-filled channels)
             d = channel_dates.get(ch, self.system_date)
             for sku in master_skus:
                 template_rows.append({"Channel": ch, "SKU": sku, "Date": d})
@@ -161,12 +161,31 @@ class SalesPipeline(DataPipeline):
         )
         merged_df = merged_df.fillna(0)
 
-        # 4. ADD BUNDLES
+        # 4. ADD BUNDLES (For ALL Channels)
+        # Create a DataFrame from any existing bundle rows
         if self.bundle_rows:
-            bundle_df = pd.DataFrame(self.bundle_rows)
-            final_df = pd.concat([bundle_df, merged_df], ignore_index=True)
+            existing_bundles_df = pd.DataFrame(self.bundle_rows)
         else:
-            final_df = merged_df
+            existing_bundles_df = pd.DataFrame(columns=["SKU", "Channel", "Date", "Units", "Revenue"])
+
+        # Create a Template for Bundles to ensure every channel has a Bundle row
+        bundle_template_rows = []
+        for ch in channels_list:
+            d = channel_dates.get(ch, self.system_date)
+            bundle_template_rows.append({"SKU": "Bundles", "Channel": ch, "Date": d})
+        
+        bundle_template_df = pd.DataFrame(bundle_template_rows)
+
+        # Merge existing bundles into the bundle template
+        # Note: Merging on ["SKU", "Channel", "Date"] might miss if dates differ slightly, 
+        # but here we derived 'd' from the same source, so it should match.
+        # If the channel was missing, 'd' is system_date, and existing_bundles_df won't have it, so it will fillna(0).
+        final_bundles_df = pd.merge(
+            bundle_template_df, existing_bundles_df, on=["SKU", "Channel", "Date"], how="left"
+        ).fillna(0)
+
+        # Concatenate Bundles + SKUs
+        final_df = pd.concat([final_bundles_df, merged_df], ignore_index=True)
 
         # 5. FORMATTING & IDs
         logger.info("--- Generating IDs and Formatting ---")

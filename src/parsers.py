@@ -93,9 +93,53 @@ def parse_amazon_sales_report(file_paths: dict):
 
 
 def parse_tiktok_sales_report(file_paths: dict):
-    df = load_csv(file_paths["primary"], skiprows=2, sep=";")
-    if df is None:
+    """
+    Robust Parsing for TikTok:
+    1. Scan first few lines to find the header row containing "SKU ID".
+    2. Determine delimiter (comma or semicolon) from that header.
+    3. Load CSV with calculated 'skiprows'.
+    """
+    path = file_paths["primary"]
+    
+    # 1. Scan for Header Row and Delimiter
+    header_row_index = None
+    delimiter = "," # Default
+    
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            for i, line in enumerate(f):
+                if "SKU ID" in line:
+                    header_row_index = i
+                    # Simple heuristic: count occurrences
+                    semicolons = line.count(";")
+                    commas = line.count(",")
+                    if semicolons > commas:
+                        delimiter = ";"
+                    else:
+                        delimiter = ","
+                    break
+                    
+        # If still not found, fallback to legacy hardcoded skip
+        if header_row_index is None:
+            logger.warning("Could not find 'SKU ID' header in TikTok report. Trying default skiprows=2.")
+            header_row_index = 2
+
+    except Exception as e:
+        logger.error(f"Error scanning TikTok file for header: {e}")
         return None, {"Units": 0, "Revenue": 0}, 0
+
+    # 2. Load with determined parameters
+    logger.info(f"  > 🔍 Detected Header at Row {header_row_index} using Delimiter '{delimiter}'")
+    df = load_csv(path, skiprows=header_row_index, sep=delimiter)
+
+    if df is None:
+         logger.warning("  > ⚠️  Could not load TikTok report DataFrame.")
+         return None, {"Units": 0, "Revenue": 0}, 0
+    
+    # Verify expected column exists
+    if "SKU ID" not in df.columns:
+         logger.warning(f"  > ⚠️  'SKU ID' column missing despite header detection. Columns found: {df.columns.tolist()}")
+         return None, {"Units": 0, "Revenue": 0}, 0
 
     raw_count = len(df)
 

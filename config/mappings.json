@@ -608,6 +608,15 @@
         "Reserve",
         "WFS"
     ],
+    "SALES_CHANNEL_ORDER": [
+        "Amazon",
+        "Walmart",
+        "TikTok Shop",
+        "Shopify",
+        "TikTok Shopify",
+        "Target",
+        "Others"
+    ],
     "SKU_ORDER": [
         "1001",
         "PH1001",
