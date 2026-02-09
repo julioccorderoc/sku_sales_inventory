@@ -19,7 +19,9 @@ def _process_bundled_row(row, mapping_dict, key_col, qty_col, rev_col, source_na
     if source_key not in mapping_dict:
         # Filter out NaNs or empty strings before alerting
         if source_key and source_key.lower() != "nan":
-            logger.warning(f"⚠️  ALERT: Unmapped SKU found in {source_name}: '{source_key}'")
+            logger.warning(
+                f"⚠️  ALERT: Unmapped SKU found in {source_name}: '{source_key}'"
+            )
         return [], False
 
     target_skus = mapping_dict[source_key]
@@ -61,7 +63,7 @@ def parse_amazon_sales_report(file_paths: dict):
     df = load_csv(file_paths["primary"])
     if df is None:
         return None, {"Units": 0, "Revenue": 0}, 0
-    
+
     raw_count = len(df)
 
     expanded_rows = []
@@ -100,11 +102,11 @@ def parse_tiktok_sales_report(file_paths: dict):
     3. Load CSV with calculated 'skiprows'.
     """
     path = file_paths["primary"]
-    
+
     # 1. Scan for Header Row and Delimiter
     header_row_index = None
-    delimiter = "," # Default
-    
+    delimiter = ","  # Default
+
     try:
         with open(path, "r", encoding="utf-8-sig") as f:
             for i, line in enumerate(f):
@@ -118,10 +120,12 @@ def parse_tiktok_sales_report(file_paths: dict):
                     else:
                         delimiter = ","
                     break
-                    
+
         # If still not found, fallback to legacy hardcoded skip
         if header_row_index is None:
-            logger.warning("Could not find 'SKU ID' header in TikTok report. Trying default skiprows=2.")
+            logger.warning(
+                "Could not find 'SKU ID' header in TikTok report. Trying default skiprows=2."
+            )
             header_row_index = 2
 
     except Exception as e:
@@ -129,17 +133,21 @@ def parse_tiktok_sales_report(file_paths: dict):
         return None, {"Units": 0, "Revenue": 0}, 0
 
     # 2. Load with determined parameters
-    logger.info(f"  > 🔍 Detected Header at Row {header_row_index} using Delimiter '{delimiter}'")
+    logger.info(
+        f"  > 🔍 Detected Header at Row {header_row_index} using Delimiter '{delimiter}'"
+    )
     df = load_csv(path, skiprows=header_row_index, sep=delimiter)
 
     if df is None:
-         logger.warning("  > ⚠️  Could not load TikTok report DataFrame.")
-         return None, {"Units": 0, "Revenue": 0}, 0
-    
+        logger.warning("  > ⚠️  Could not load TikTok report DataFrame.")
+        return None, {"Units": 0, "Revenue": 0}, 0
+
     # Verify expected column exists
     if "SKU ID" not in df.columns:
-         logger.warning(f"  > ⚠️  'SKU ID' column missing despite header detection. Columns found: {df.columns.tolist()}")
-         return None, {"Units": 0, "Revenue": 0}, 0
+        logger.warning(
+            f"  > ⚠️  'SKU ID' column missing despite header detection. Columns found: {df.columns.tolist()}"
+        )
+        return None, {"Units": 0, "Revenue": 0}, 0
 
     raw_count = len(df)
 
@@ -171,7 +179,7 @@ def parse_shopify_sales_report(file_paths: dict):
     df = load_csv(file_paths["primary"])
     if df is None:
         return None, {}, 0
-    
+
     raw_count = len(df)
 
     df = df[df["Sales channel"] != "Draft Orders"]
@@ -282,6 +290,73 @@ def parse_fba_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
 
     logger.info(f"✅ Parsed {file_paths['primary'].name} successfully.")
     return df_normalized
+
+
+def parse_fbt_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
+    """
+    Combined FBT parser that mirrors `parse_wfs_report` structure.
+    Expects `file_paths` to contain:
+      - 'sales': TikTok Orders file (Fulfillment by TikTok Shop)
+      - 'inventory': FBT inventory file
+
+    Returns a DataFrame with columns: sku, units_sold, inventory, inbound, channel
+    """
+    # Load inventory portion using existing inventory parser
+    inv_paths = {"primary": file_paths.get("inventory")}
+    inventory_df = parse_fbt_inventory_report(inv_paths)
+    if inventory_df is None:
+        return None
+
+    # Load sales portion using existing TikTok orders parser (returns grouped DF)
+    sales_grouped, _, _ = parse_tiktok_orders_report(
+        {"primary": file_paths.get("sales")}
+    )
+
+    # If sales parser returned None, create empty grouped frame
+    if sales_grouped is None:
+        sales_grouped = pd.DataFrame(columns=["SKU", "Units", "Revenue"])
+
+    # Normalize column names for merge
+    if "SKU" in sales_grouped.columns:
+        sales_grouped = sales_grouped.rename(
+            columns={"SKU": "sku", "Units": "units_sold"}
+        )
+    else:
+        sales_grouped = sales_grouped.rename(lambda c: c.lower(), axis=1)
+
+    # Ensure units_sold exists
+    if "units_sold" not in sales_grouped.columns:
+        sales_grouped["units_sold"] = 0
+
+    # Merge sales into inventory template (outer join handled by inventory template already)
+    merged = pd.merge(
+        inventory_df,
+        sales_grouped[["sku", "units_sold"]],
+        on="sku",
+        how="left",
+    )
+
+    # If units_sold came from inventory_df (was present as 0), prefer sales value
+    merged["units_sold"] = (
+        merged["units_sold_y"].fillna(merged.get("units_sold_x", 0))
+        if "units_sold_y" in merged.columns
+        else merged["units_sold"]
+    )
+
+    # Clean up any extraneous columns created by merge
+    for col in [c for c in merged.columns if c.endswith("_x") or c.endswith("_y")]:
+        merged = merged.drop(columns=[col])
+
+    # Ensure types and fillna
+    merged["units_sold"] = merged["units_sold"].fillna(0).astype(float)
+    merged["inventory"] = merged["inventory"].fillna(0).astype(float)
+    merged["inbound"] = merged["inbound"].fillna(0).astype(float)
+
+    merged["channel"] = "FBT"
+    merged = merged.fillna(0)
+
+    logger.info("✅ Parsed FBT combined (sales + inventory) reports successfully.")
+    return merged
 
 
 def parse_awd_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
@@ -495,3 +570,167 @@ def parse_wfs_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
 
     logger.info("✅ Parsed Walmart/WFS reports successfully.")
     return df_normalized
+
+
+def parse_fbt_inventory_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
+    """
+    Parses the FBT Inventory report (TikTok Fulfillment).
+    Aggregates inventory across multiple locations for each SKU.
+    """
+    df = load_csv(file_paths["primary"])
+    if df is None:
+        return None
+
+    # Required columns from the user request
+    # "Reference code": SKU
+    # "Available inventory": Inventory -> inventory
+    # "In Transit: Total Quantity": Inbound -> inbound
+
+    # Check if df is empty
+    if df.empty:
+        return None
+
+    # Rename columns for clarity before processing
+    col_map = {
+        "Reference code": "sku",
+        "Available inventory": "inventory",
+        "In Transit: Total Quantity": "inbound",
+    }
+
+    # Check if necessary columns exist
+    missing_cols = [c for c in col_map.keys() if c not in df.columns]
+    if missing_cols:
+        logger.error(f"❌ FBT Report missing columns: {missing_cols}")
+        return None
+
+    # Rename
+    df = df.rename(columns=col_map)
+
+    # Convert to numeric, forcing errors to NaN then 0
+    df["inventory"] = pd.to_numeric(df["inventory"], errors="coerce").fillna(0)
+    df["inbound"] = pd.to_numeric(df["inbound"], errors="coerce").fillna(0)
+
+    # Group by SKU (Reference code) and sum
+    grouped = df.groupby("sku")[["inventory", "inbound"]].sum().reset_index()
+
+    # Ensure SKU is string and clean
+    grouped["sku"] = grouped["sku"].astype(str).str.strip()
+
+    # Filter/Merge with Master SKU List
+    # We want to keep only relevant SKUs and ensure all are present
+    full_sku_template = pd.DataFrame({"sku": settings.SKU_ORDER})
+    # Ensure template SKU is string
+    full_sku_template["sku"] = full_sku_template["sku"].astype(str)
+
+    df_normalized = pd.merge(full_sku_template, grouped, on="sku", how="left")
+
+    df_normalized["channel"] = "FBT"
+    df_normalized["units_sold"] = 0
+    df_normalized = df_normalized.fillna(0)
+
+    logger.info(f"✅ Parsed {file_paths['primary'].name} successfully.")
+    return df_normalized
+
+
+def parse_tiktok_orders_report(file_paths: dict):
+    """
+    Placeholder for TikTok Orders report.
+    Expected file: TikTok_orders_yyyy_mm_dd.csv
+    """
+    path = file_paths.get("primary")
+    if not path or not path.exists():
+        return None, {"Units": 0, "Revenue": 0}, 0
+
+    df = load_csv(path)
+    if df is None:
+        return None, {"Units": 0, "Revenue": 0}, 0
+
+    # Raw row count before filtering
+    raw_count = len(df)
+
+    # Required columns per spec
+    expected_cols = [
+        "Order Status",
+        "SKU ID",
+        "Seller SKU",
+        "Quantity",
+        "Order Amount",
+        "Fulfillment Type",
+        "Warehouse Name",
+    ]
+
+    # Reduce to intersection to avoid KeyErrors if some are missing
+    present_cols = [c for c in expected_cols if c in df.columns]
+    if not present_cols:
+        logger.error(
+            f"❌ TikTok Orders report missing expected columns. Available: {df.columns.tolist()}"
+        )
+        return None, {"Units": 0, "Revenue": 0}, raw_count
+
+    df = df[present_cols].copy()
+    logger.info(f"TikTok Orders: Rows after column filter: {len(df)}")
+
+    # Normalize textual columns for robust filtering
+    df["Order Status"] = df["Order Status"].astype(str).str.strip()
+    df["Fulfillment Type"] = df.get("Fulfillment Type", "").astype(str).str.strip()
+
+    # 1) Filter out cancelled orders (case-insensitive contains 'cancel')
+    df = df[~df["Order Status"].str.lower().str.contains("cancel", na=False)].copy()
+    logger.info(f"TikTok Orders: Rows after Order Status filter: {len(df)}")
+
+    # 2) Keep only Fulfillment by TikTok Shop
+    df = df[
+        df["Fulfillment Type"].str.lower() == "fulfillment by tiktok shop".lower()
+    ].copy()
+    logger.info(f"TikTok Orders: Rows after Fulfillment Type filter: {len(df)}")
+
+    if df.empty:
+        return None, {"Units": 0, "Revenue": 0}, raw_count
+
+    # Ensure numeric conversions
+    if "Quantity" in df.columns:
+        df["Quantity"] = pd.to_numeric(df["Quantity"], errors="coerce").fillna(0)
+    else:
+        df["Quantity"] = 0
+
+    if "Order Amount" in df.columns:
+        df["Order Amount"] = df["Order Amount"].apply(clean_money)
+    else:
+        df["Order Amount"] = 0
+
+    # Ensure SKU ID is string for mapping
+    df["SKU ID"] = df["SKU ID"].astype(str).str.strip()
+    # Aggregate by SKU ID
+    grouped_src = df.groupby("SKU ID")[["Quantity", "Order Amount"]].sum().reset_index()
+    logger.info(f"TikTok Orders: Grouped SKUs: {grouped_src['SKU ID'].tolist()}")
+
+    # Explode / map to internal SKUs using the same bundle logic
+    expanded_rows = []
+    bundle_units = 0.0
+    bundle_rev = 0.0
+
+    mapped_skus = []
+    for _, row in grouped_src.iterrows():
+        # _process_bundled_row expects a row-like object with the source columns
+        new_rows, is_bundle = _process_bundled_row(
+            row,
+            settings.TIKTOK_ID_MAP,
+            "SKU ID",
+            "Quantity",
+            "Order Amount",
+            "TikTok Orders",
+        )
+        expanded_rows.extend(new_rows)
+        mapped_skus.extend([r["SKU"] for r in new_rows])
+        if is_bundle:
+            bundle_units += float(row.get("Quantity") or 0)
+            bundle_rev += float(row.get("Order Amount") or 0)
+    logger.info(f"TikTok Orders: Mapped internal SKUs: {mapped_skus}")
+
+    if not expanded_rows:
+        return None, {"Units": 0, "Revenue": 0}, raw_count
+
+    df_norm = pd.DataFrame(expanded_rows)
+    grouped = df_norm.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
+
+    return grouped, {"Units": bundle_units, "Revenue": bundle_rev}, raw_count

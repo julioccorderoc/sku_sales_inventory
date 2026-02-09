@@ -28,6 +28,9 @@ AWD_FILENAME_PREFIX = os.getenv("AWD_FILENAME_PREFIX", "AWD_report_")
 WFS_INVENTORY_FILENAME_PREFIX = os.getenv(
     "WFS_INVENTORY_FILENAME_PREFIX", "Walmart_inventory_"
 )
+FBT_INVENTORY_FILENAME_PREFIX = os.getenv(
+    "FBT_INVENTORY_FILENAME_PREFIX", "FBT_inventory_"
+)
 WALMART_SALES_FILENAME_PREFIX = os.getenv(
     "WALMART_SALES_FILENAME_PREFIX", "Walmart_sales_"
 )
@@ -35,6 +38,7 @@ COMBINED_FILENAME_BASE = os.getenv("COMBINED_FILENAME", "combined_inventory")
 
 WALMART_SALES_PREFIX = "Walmart_sales_"
 TIKTOK_SALES_PREFIX = "TikTok_sales_"
+TIKTOK_ORDERS_PREFIX = "TikTok_orders_"
 AMAZON_SALES_PREFIX = "Amazon_sales_"
 SHOPIFY_SALES_PREFIX = "Shopify_sales_"
 

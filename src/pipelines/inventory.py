@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class InventoryPipeline(DataPipeline):
-    def __init__(self):
-        super().__init__("inventory")
+    def __init__(self, test_mode: bool = False):
+        super().__init__("inventory", test_mode=test_mode)
         self.system_date = date.today()
 
         # Inventory-specific Parsers
@@ -44,13 +44,21 @@ class InventoryPipeline(DataPipeline):
                     "inventory": settings.WFS_INVENTORY_FILENAME_PREFIX,
                 },
             },
+            {
+                "channel_name": "FBT",
+                "parser_func": parsers.parse_fbt_report,
+                "required_files": {
+                    "sales": settings.TIKTOK_ORDERS_PREFIX,
+                    "inventory": settings.FBT_INVENTORY_FILENAME_PREFIX,
+                },
+            },
         ]
 
     def extract(self) -> pd.DataFrame | None:
         logger.info("--- Starting Inventory Report Process ---")
 
         dataframes = []
-        
+
         for parser_config in self.PARSER_REGISTRY:
             source_name = parser_config["channel_name"]
             logger.info(f"\n-- Processing Source: {source_name} --")
@@ -69,7 +77,9 @@ class InventoryPipeline(DataPipeline):
                     logger.info(f"  > Found '{file_key}': {path.name} ({report_date})")
                 else:
                     if file_key == "inbound" and source_name == "Flexport":
-                        logger.info(f"  > INFO: Optional '{file_key}' missing. Continuing.")
+                        logger.info(
+                            f"  > INFO: Optional '{file_key}' missing. Continuing."
+                        )
                         file_paths[file_key] = None
                     else:
                         logger.error(f"  > ERROR: Required '{file_key}' missing.")
@@ -110,45 +120,40 @@ class InventoryPipeline(DataPipeline):
 
     def transform(self, combined_df: pd.DataFrame) -> list[InventoryItem] | None:
         logger.info("\n--- Normalizing Data (Zero-Filling) ---")
-        
+
         # Identify all channels processed in this run
         processed_channels = combined_df["channel"].unique()
         master_skus = [str(x) for x in settings.SKU_ORDER]
-        
+
         # Get map of Channel -> Date from existing data
         channel_dates = combined_df.groupby("channel")["Date"].first().to_dict()
-        
+
         # Generate template: Channel + SKU -> Date
         template_rows = []
-        
+
         # We want to ensure that for every processed channel, we have an entry for every SKU
         for ch in processed_channels:
             # Default to system date if somehow missing
             date_for_channel = channel_dates.get(ch, date.today())
-            
+
             for sku in master_skus:
-                template_rows.append({
-                    "channel": ch, 
-                    "sku": sku, 
-                    "Date": date_for_channel
-                })
-                
+                template_rows.append(
+                    {"channel": ch, "sku": sku, "Date": date_for_channel}
+                )
+
         template_df = pd.DataFrame(template_rows)
-        
+
         # Merge Actual Data into Template
         # We'll Left Merge on [channel, sku, Date] to keep the template shape
         merged_df = pd.merge(
-            template_df, 
-            combined_df, 
-            on=["channel", "sku", "Date"], 
-            how="left"
+            template_df, combined_df, on=["channel", "sku", "Date"], how="left"
         )
-        
+
         # Fill NuNs with 0 for metrics
         merged_df["units_sold"] = merged_df["units_sold"].fillna(0)
         merged_df["inventory"] = merged_df["inventory"].fillna(0)
         merged_df["inbound"] = merged_df["inbound"].fillna(0)
-        
+
         combined_df = merged_df
 
         # --- 2. Generate IDs (New Structure) ---
@@ -199,7 +204,7 @@ class InventoryPipeline(DataPipeline):
             return None
 
         # --- 4. Sort (Optional, for presentation consistency) ---
-        # Note: The DataPipeline.load method will save this data. 
+        # Note: The DataPipeline.load method will save this data.
         # Sorting there or here is fine, but lets do it here to ensure saved CSV is clean.
         # However, listing comprehension loses dataframe structure.
         # It's better to trust the saved order or standard CSV opening.

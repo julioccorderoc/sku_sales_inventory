@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 class SalesPipeline(DataPipeline):
-    def __init__(self):
+    def __init__(self, test_mode: bool = False):
         # Initialize with empty channels; we will discover them dynamically
-        super().__init__("sales", channels=[])
+        super().__init__("sales", channels=[], test_mode=test_mode)
         self.system_date = date.today()
 
         # Sales-specific Parsers
@@ -45,10 +45,10 @@ class SalesPipeline(DataPipeline):
 
         all_data_frames = []
         self.bundle_rows = []  # Need to store this for transformation
-        self.processed_channels = set() 
-        
+        self.processed_channels = set()
+
         # Store raw counts and processed counts for reporting (optional, can log immediately)
-        
+
         for parser in self.PARSER_REGISTRY:
             logger.info(f"\n-- Processing Source: {parser['channel']} --")
 
@@ -72,7 +72,7 @@ class SalesPipeline(DataPipeline):
                     df_source["Channel"] = parser["channel"]
                     all_data_frames.append(df_source)
                     self.processed_channels.add(parser["channel"])
-                    
+
                     # Update Status Summary
                     self.status_summary[parser["channel"]] = file_date
 
@@ -92,14 +92,16 @@ class SalesPipeline(DataPipeline):
                     all_data_frames.append(df_source)
                     unique_chans = df_source["Channel"].unique()
                     self.processed_channels.update(unique_chans)
-                    
+
                     # Update Status Summary for all found channels
                     for ch in unique_chans:
                         self.status_summary[ch] = file_date
 
                     for bucket, stats in bundle_stats.items():
                         if bucket in unique_chans or stats["Units"] > 0:
-                            self.processed_channels.add(bucket) # Ensure implicit channels are added
+                            self.processed_channels.add(
+                                bucket
+                            )  # Ensure implicit channels are added
                             self.bundle_rows.append(
                                 {
                                     "SKU": "Bundles",
@@ -119,12 +121,14 @@ class SalesPipeline(DataPipeline):
                 master_skus = set(settings.SKU_ORDER)
                 missing = master_skus - present_skus
                 if missing:
-                     # For Mixed, this alert is less useful per-SKU, but we keep it for now
-                    msg = f"    - ⚠️  Missing SKUs ({len(missing)}): {', '.join(missing)}"
+                    # For Mixed, this alert is less useful per-SKU, but we keep it for now
+                    msg = (
+                        f"    - ⚠️  Missing SKUs ({len(missing)}): {', '.join(missing)}"
+                    )
                     logger.warning(msg)
 
             else:
-                 logger.warning(f"  > ⚠️  No data processed from {parser['file']}.")
+                logger.warning(f"  > ⚠️  No data processed from {parser['file']}.")
 
         if not all_data_frames:
             return None
@@ -166,22 +170,27 @@ class SalesPipeline(DataPipeline):
         if self.bundle_rows:
             existing_bundles_df = pd.DataFrame(self.bundle_rows)
         else:
-            existing_bundles_df = pd.DataFrame(columns=["SKU", "Channel", "Date", "Units", "Revenue"])
+            existing_bundles_df = pd.DataFrame(
+                columns=["SKU", "Channel", "Date", "Units", "Revenue"]
+            )
 
         # Create a Template for Bundles to ensure every channel has a Bundle row
         bundle_template_rows = []
         for ch in channels_list:
             d = channel_dates.get(ch, self.system_date)
             bundle_template_rows.append({"SKU": "Bundles", "Channel": ch, "Date": d})
-        
+
         bundle_template_df = pd.DataFrame(bundle_template_rows)
 
         # Merge existing bundles into the bundle template
-        # Note: Merging on ["SKU", "Channel", "Date"] might miss if dates differ slightly, 
+        # Note: Merging on ["SKU", "Channel", "Date"] might miss if dates differ slightly,
         # but here we derived 'd' from the same source, so it should match.
         # If the channel was missing, 'd' is system_date, and existing_bundles_df won't have it, so it will fillna(0).
         final_bundles_df = pd.merge(
-            bundle_template_df, existing_bundles_df, on=["SKU", "Channel", "Date"], how="left"
+            bundle_template_df,
+            existing_bundles_df,
+            on=["SKU", "Channel", "Date"],
+            how="left",
         ).fillna(0)
 
         # Concatenate Bundles + SKUs
@@ -196,7 +205,7 @@ class SalesPipeline(DataPipeline):
 
         # ID Generation: YYYYMMDD_Channel_SKU
         system_date_str = self.system_date.strftime("%Y%m%d")
-        
+
         # FIX: Replace spaces with underscores in Channel name
         final_df["id"] = (
             system_date_str
@@ -214,14 +223,24 @@ class SalesPipeline(DataPipeline):
         )
 
         # Final Column Order
-        target_cols = ["id", "sku_channel_id", "Date", "SKU", "Channel", "Units", "Revenue"]
+        target_cols = [
+            "id",
+            "sku_channel_id",
+            "Date",
+            "SKU",
+            "Channel",
+            "Units",
+            "Revenue",
+        ]
         final_df = final_df[target_cols]
 
         # 6. VALIDATION
         try:
             logger.info("Validating data against schema...")
             validated_data = [SalesRecord(**row) for row in final_df.to_dict("records")]
-            logger.info(f"✅ Data validation successful ({len(validated_data)} records).")
+            logger.info(
+                f"✅ Data validation successful ({len(validated_data)} records)."
+            )
             return validated_data
         except ValidationError as e:
             logger.error("❌ Data validation failed!")

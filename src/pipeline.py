@@ -15,10 +15,11 @@ class DataPipeline(ABC):
     Follows an Extract -> Transform -> Load (ETL) pattern.
     """
 
-    def __init__(self, report_type: str, channels: list[str] = None):
+    def __init__(self, report_type: str, channels: list[str] = None, test_mode: bool = False):
         self.report_type = report_type
         # Use provided channels or default to settings.CHANNEL_ORDER (Inventory default)
         self.channels = channels if channels is not None else settings.CHANNEL_ORDER
+        self.test_mode = test_mode
         # Status summary tracks the data date for each channel
         self.status_summary = {ch: None for ch in self.channels}
 
@@ -84,8 +85,11 @@ class DataPipeline(ABC):
             logger.warning("No data to save to disk.")
 
         # 3. Post to Webhook
-        data_handler.post_to_webhook(
-            validated_data=validated_data,
-            metadata=self.status_summary,
-            report_type=self.report_type,
-        )
+        if not self.test_mode:
+            data_handler.post_to_webhook(
+                validated_data=validated_data,
+                metadata=self.status_summary,
+                report_type=self.report_type,
+            )
+        else:
+            logger.info("🧪 Test Mode: Skipping webhook post.")
