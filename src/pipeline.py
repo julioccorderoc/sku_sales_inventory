@@ -1,8 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
 import pandas as pd
-from datetime import date
 
 from src import settings, data_handler
 
@@ -15,7 +14,7 @@ class DataPipeline(ABC):
     Follows an Extract -> Transform -> Load (ETL) pattern.
     """
 
-    def __init__(self, report_type: str, channels: list[str] = None, test_mode: bool = False):
+    def __init__(self, report_type: str, channels: Optional[list[str]] = None, test_mode: bool = False):
         self.report_type = report_type
         # Use provided channels or default to settings.CHANNEL_ORDER (Inventory default)
         self.channels = channels if channels is not None else settings.CHANNEL_ORDER

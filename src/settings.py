@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import json
 from dotenv import load_dotenv
 
 # --- Base Directory ---
@@ -46,9 +47,6 @@ SHOPIFY_SALES_PREFIX = "Shopify_sales_"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 # --- Output Configuration ---
 SAVE_JSON_OUTPUT = os.getenv("SAVE_JSON_OUTPUT", "true").lower() == "true"
-
-# --- Mappings (Loaded from config/mappings.json) ---
-import json
 
 MAPPINGS_FILE = BASE_DIR / "config" / "mappings.json"
 

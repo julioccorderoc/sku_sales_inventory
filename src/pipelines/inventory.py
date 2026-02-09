@@ -118,15 +118,15 @@ class InventoryPipeline(DataPipeline):
         logger.info("\nConcatenating reports...")
         return pd.concat(dataframes, ignore_index=True)
 
-    def transform(self, combined_df: pd.DataFrame) -> list[InventoryItem] | None:
+    def transform(self, df: pd.DataFrame) -> list[InventoryItem] | None:
         logger.info("\n--- Normalizing Data (Zero-Filling) ---")
 
         # Identify all channels processed in this run
-        processed_channels = combined_df["channel"].unique()
+        processed_channels = df["channel"].unique()
         master_skus = [str(x) for x in settings.SKU_ORDER]
 
         # Get map of Channel -> Date from existing data
-        channel_dates = combined_df.groupby("channel")["Date"].first().to_dict()
+        channel_dates = df.groupby("channel")["Date"].first().to_dict()
 
         # Generate template: Channel + SKU -> Date
         template_rows = []
@@ -146,7 +146,7 @@ class InventoryPipeline(DataPipeline):
         # Merge Actual Data into Template
         # We'll Left Merge on [channel, sku, Date] to keep the template shape
         merged_df = pd.merge(
-            template_df, combined_df, on=["channel", "sku", "Date"], how="left"
+            template_df, df, on=["channel", "sku", "Date"], how="left"
         )
 
         # Fill NuNs with 0 for metrics
@@ -154,24 +154,24 @@ class InventoryPipeline(DataPipeline):
         merged_df["inventory"] = merged_df["inventory"].fillna(0)
         merged_df["inbound"] = merged_df["inbound"].fillna(0)
 
-        combined_df = merged_df
+        df = merged_df
 
         # --- 2. Generate IDs (New Structure) ---
         logger.info("Generating IDs...")
         system_date_str = self.system_date.strftime("%Y%m%d")
 
         # ID: YYYYMMDD_Channel_SKU
-        combined_df["id"] = (
+        df["id"] = (
             system_date_str
             + "_"
-            + combined_df["channel"].astype(str)
+            + df["channel"].astype(str)
             + "_"
-            + combined_df["sku"].astype(str)
+            + df["sku"].astype(str)
         )
 
         # SKU_Channel_ID: Channel_SKU
-        combined_df["sku_channel_id"] = (
-            combined_df["channel"].astype(str) + "_" + combined_df["sku"].astype(str)
+        df["sku_channel_id"] = (
+            df["channel"].astype(str) + "_" + df["sku"].astype(str)
         )
 
         # --- 3. Filter Columns & Validate ---
@@ -181,7 +181,7 @@ class InventoryPipeline(DataPipeline):
         ]
 
         # Ensure all columns exist (fill missing with default if needed, though parsers should handle it)
-        combined_df = combined_df.rename(
+        df = df.rename(
             columns={
                 "channel": "Channel",
                 "sku": "SKU",
@@ -190,12 +190,12 @@ class InventoryPipeline(DataPipeline):
                 "inbound": "Inbound",
             }
         )
-        combined_df = combined_df[final_columns]
+        df = df[final_columns]
 
         try:
             logger.info("Validating data against schema...")
             validated_data = [
-                InventoryItem(**row) for row in combined_df.to_dict("records")
+                InventoryItem(**{str(k): v for k, v in row.items()}) for row in df.to_dict("records")
             ]
             logger.info("✅ Data validation successful.")
         except ValidationError as e:

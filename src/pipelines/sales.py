@@ -2,6 +2,7 @@ import logging
 import pandas as pd
 from datetime import date
 from pydantic import ValidationError
+from typing import cast
 
 from src import parsers, utils, settings
 from src.pipeline import DataPipeline
@@ -74,7 +75,7 @@ class SalesPipeline(DataPipeline):
                     self.processed_channels.add(parser["channel"])
 
                     # Update Status Summary
-                    self.status_summary[parser["channel"]] = file_date
+                    cast(dict, self.status_summary)[parser["channel"]] = file_date
 
                     # Bundle Row for this channel (Using File Date)
                     self.bundle_rows.append(
@@ -95,7 +96,7 @@ class SalesPipeline(DataPipeline):
 
                     # Update Status Summary for all found channels
                     for ch in unique_chans:
-                        self.status_summary[ch] = file_date
+                        cast(dict, self.status_summary)[ch] = file_date
 
                     for bucket, stats in bundle_stats.items():
                         if bucket in unique_chans or stats["Units"] > 0:
@@ -139,7 +140,7 @@ class SalesPipeline(DataPipeline):
         # Concatenate
         return pd.concat(all_data_frames, ignore_index=True)
 
-    def transform(self, full_df: pd.DataFrame) -> list[SalesRecord] | None:
+    def transform(self, df: pd.DataFrame) -> list[SalesRecord] | None:
         logger.info("\n--- Normalizing Data (Zero-Filling) ---")
 
         master_skus = [str(x) for x in settings.SKU_ORDER]
@@ -147,7 +148,7 @@ class SalesPipeline(DataPipeline):
         channels_list = settings.SALES_CHANNEL_ORDER
 
         # Get map of Channel -> Date from existing data
-        channel_dates = full_df.groupby("Channel")["Date"].first().to_dict()
+        channel_dates = df.groupby("Channel")["Date"].first().to_dict()
 
         # Generate template: Channel + SKU -> Date
         template_rows = []
@@ -160,9 +161,7 @@ class SalesPipeline(DataPipeline):
         template_df = pd.DataFrame(template_rows)
 
         # Merge actual data into template
-        merged_df = pd.merge(
-            template_df, full_df, on=["SKU", "Channel", "Date"], how="left"
-        )
+        merged_df = pd.merge(template_df, df, on=["SKU", "Channel", "Date"], how="left")
         merged_df = merged_df.fillna(0)
 
         # 4. ADD BUNDLES (For ALL Channels)
@@ -237,7 +236,12 @@ class SalesPipeline(DataPipeline):
         # 6. VALIDATION
         try:
             logger.info("Validating data against schema...")
-            validated_data = [SalesRecord(**row) for row in final_df.to_dict("records")]
+            # Ensure each record is a plain dict with string keys so it can be expanded via **
+            records = final_df.to_dict("records")
+            normalized_records = [
+                {str(k): v for k, v in rec.items()} for rec in records
+            ]
+            validated_data = [SalesRecord(**row) for row in normalized_records]
             logger.info(
                 f"✅ Data validation successful ({len(validated_data)} records)."
             )

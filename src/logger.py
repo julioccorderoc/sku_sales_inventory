@@ -1,10 +1,10 @@
 import logging
 import sys
+from typing import Optional
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 from . import settings
 
-def setup_logger(name: str = None, log_level: int = logging.INFO) -> logging.Logger:
+def setup_logger(name: Optional[str] = None, log_level: int = logging.INFO) -> logging.Logger:
     """
     Sets up the root logger with both console (StreamHandler) and file (RotatingFileHandler) output.
     """

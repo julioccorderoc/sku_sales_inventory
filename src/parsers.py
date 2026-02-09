@@ -302,7 +302,10 @@ def parse_fbt_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     Returns a DataFrame with columns: sku, units_sold, inventory, inbound, channel
     """
     # Load inventory portion using existing inventory parser
-    inv_paths = {"primary": file_paths.get("inventory")}
+    inv_path = file_paths.get("inventory")
+    if inv_path is None:
+        return None
+    inv_paths = {"primary": inv_path}
     inventory_df = parse_fbt_inventory_report(inv_paths)
     if inventory_df is None:
         return None
@@ -672,7 +675,10 @@ def parse_tiktok_orders_report(file_paths: dict):
 
     # Normalize textual columns for robust filtering
     df["Order Status"] = df["Order Status"].astype(str).str.strip()
-    df["Fulfillment Type"] = df.get("Fulfillment Type", "").astype(str).str.strip()
+    if "Fulfillment Type" in df.columns:
+        df["Fulfillment Type"] = df["Fulfillment Type"].astype(str).str.strip()
+    else:
+        df["Fulfillment Type"] = ""
 
     # 1) Filter out cancelled orders (case-insensitive contains 'cancel')
     df = df[~df["Order Status"].str.lower().str.contains("cancel", na=False)].copy()
