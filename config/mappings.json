@@ -224,6 +224,14 @@
             "PH9001",
             "PH9001",
             "PH9001"
+        ],
+        "1729500842255946209": [
+            "PH3001",
+            "PH3001"
+        ],
+        "1731531474018669025": [
+            "4001",
+            "8001"
         ]
     },
     "SHOPIFY_SKU_MAP": {
@@ -492,6 +500,13 @@
             "2001",
             "5001",
             "8001"
+        ],
+        "WestWellnessBundle": [
+            "5001",
+            "2001"
+        ],
+        "MonolaurinStarterGuide": [
+            "1001"
         ]
     },
     "AMAZON_SKU_MAP": {
@@ -606,7 +621,8 @@
         "AWD",
         "DTC",
         "Reserve",
-        "WFS"
+        "WFS",
+        "FBT"
     ],
     "SALES_CHANNEL_ORDER": [
         "Amazon",
