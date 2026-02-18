@@ -104,7 +104,7 @@ The pipeline runs two major jobs:
 
 1. **Navigate** to [**WFS \> Inventory**](https://seller.walmart.com/wfs/inventory)
 2. **Download** the \'All current items\' file
-3. **Rename** the file following the convention `WFS_inventory_YYYY-MM-DD.csv`
+3. **Rename** the file following the convention `Walmart_inventory_YYYY-MM-DD.csv`
 
 ### 3. TikTok
 
