@@ -31,7 +31,7 @@
 
 ### EPIC-002 — Platform API Integration Guide
 
-* **Status:** Pending
+* **Status:** Complete (2026-03-03)
 * **Dependencies:** None
 * **Business Objective:** Eliminate the manual CSV download step for all channels by documenting the exact API connection path for each platform, enabling future automation of the extract phase.
 * **Technical Boundary:** Produce a single reference document at `docs/api_integrations.md`. No code changes. All five channels currently read from manually-downloaded CSVs — including Flexport, which has API credentials in `.env` but no API integration in the codebase yet. Cover: Flexport (Logistics API, credentials already in `.env`), Amazon (SP-API), Walmart (Seller API), TikTok Shop (Open Platform API), and Shopify (Admin API).
@@ -46,7 +46,7 @@
 
 ### EPIC-003 — Split Mappings Configuration
 
-* **Status:** Pending
+* **Status:** Complete (2026-03-03)
 * **Dependencies:** None
 * **Business Objective:** Make SKU and channel mappings easier to maintain as the catalog grows, so a new SKU or bundle definition can be added without touching a single large file that mixes all channel concerns.
 * **Technical Boundary:** Split `config/mappings.json` into per-channel files. All existing keys stay intact; only the file layout changes. `src/settings.py` is updated to load from the new paths. No pipeline logic changes.
@@ -60,7 +60,7 @@
 
 ### EPIC-004 — Standardize Pipeline Architecture
 
-* **Status:** Pending
+* **Status:** Active (2026-03-03)
 * **Dependencies:** EPIC-001 (tests must exist before a refactor of this scope)
 * **Business Objective:** Reduce cognitive overhead when adding new channels. A developer adding a new inventory source and a new sales channel should follow the exact same pattern and registry contract.
 * **Technical Boundary:** Normalize the divergences between `InventoryPipeline` and `SalesPipeline` without changing output schemas or business logic. Specific issues to resolve:

@@ -27,6 +27,8 @@ def load_csv(file_path: Path, skiprows: int = 0, **kwargs) -> pd.DataFrame | Non
     1. UTF-8 with BOM support ('utf-8-sig') - The best practice.
     2. Latin-1 - A permissive fallback that never fails but might misinterpret characters.
     """
+    if file_path is None:
+        return None
     try:
         # Attempt 1: Try the most common and correct encoding first.
         return pd.read_csv(file_path, encoding="utf-8-sig", skiprows=skiprows, **kwargs)

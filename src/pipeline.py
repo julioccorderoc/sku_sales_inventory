@@ -4,6 +4,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from src import settings, data_handler
+from src.schemas import ExtractResult
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,8 @@ class DataPipeline(ABC):
         logger.info("-" * 30)
 
         # --- 1. EXTRACT ---
-        raw_data = self.extract()
+        extract_result = self.extract()
+        raw_data = extract_result.df
         if raw_data is None or raw_data.empty:
             logger.warning(f"⚠️ No data extracted for {self.report_type}. Sending empty status matches.")
             self.load([])
@@ -38,30 +40,32 @@ class DataPipeline(ABC):
 
         # --- 2. TRANSFORM ---
         # Transform returns a list of Pydantic models (validated data)
-        validated_data = self.transform(raw_data)
+        validated_data = self.transform(raw_data, extract_result.bundle_rows)
         if validated_data is None:
             logger.error(f"❌ Transformation failed for {self.report_type}.")
             return
 
         # --- 3. LOAD ---
         self.load(validated_data)
-        
+
         logger.info(f"✅ {self.report_type.capitalize()} Pipeline Finished.\n")
         logger.info("=" * 60)
 
     @abstractmethod
-    def extract(self) -> pd.DataFrame | None:
+    def extract(self) -> ExtractResult:
         """
-        Responsible for finding files, running parsers, and returning a raw combined DataFrame.
+        Responsible for finding files, running parsers, and returning an ExtractResult
+        containing the combined raw DataFrame and any bundle_rows.
         Should also populate self.status_summary as it processes sources.
         """
         pass
 
     @abstractmethod
-    def transform(self, df: pd.DataFrame) -> list[Any] | None:
+    def transform(self, df: pd.DataFrame, bundle_rows: list[dict]) -> list[Any] | None:
         """
         Responsible for normalization (zero-filling), ID generation, and validation.
         Returns a list of validated Pydantic models.
+        bundle_rows carries bundle data from the extract phase for sales pipelines.
         """
         pass
 
@@ -70,7 +74,6 @@ class DataPipeline(ABC):
         Saves data to disk and posts to webhook.
         """
         # 1. Print Status Summary
-        # Only print summary if we have channels defined
         if self.channels:
             logger.info("\n--- Final Status Summary ---")
             for ch in self.channels:

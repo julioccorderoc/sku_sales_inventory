@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from src import parsers, utils, settings
 from src.pipeline import DataPipeline
-from src.schemas import InventoryItem
+from src.schemas import InventoryItem, ExtractResult
 
 logger = logging.getLogger(__name__)
 
@@ -15,59 +15,62 @@ class InventoryPipeline(DataPipeline):
         super().__init__("inventory", test_mode=test_mode)
         self.system_date = date.today()
 
-        # Inventory-specific Parsers
+        # Standardized registry: every entry uses the same keys
+        #   channel   — display name / status key
+        #   parser    — callable returning ParseResult
+        #   files     — dict of file_key → filename prefix
         self.PARSER_REGISTRY = [
             {
-                "channel_name": "FBA",
-                "parser_func": parsers.parse_fba_report,
-                "required_files": {"primary": settings.FBA_FILENAME_PREFIX},
+                "channel": "FBA",
+                "parser": parsers.parse_fba_report,
+                "files": {"primary": settings.FBA_FILENAME_PREFIX},
             },
             {
-                "channel_name": "Flexport",
-                "parser_func": parsers.parse_flexport_reports,
-                "required_files": {
+                "channel": "Flexport",
+                "parser": parsers.parse_flexport_reports,
+                "files": {
                     "levels": settings.FLEXPORT_LEVELS_FILENAME_PREFIX,
                     "orders": settings.FLEXPORT_ORDERS_FILENAME_PREFIX,
                     "inbound": settings.FLEXPORT_INBOUND_FILENAME_PREFIX,
                 },
             },
             {
-                "channel_name": "AWD",
-                "parser_func": parsers.parse_awd_report,
-                "required_files": {"primary": settings.AWD_FILENAME_PREFIX},
+                "channel": "AWD",
+                "parser": parsers.parse_awd_report,
+                "files": {"primary": settings.AWD_FILENAME_PREFIX},
             },
             {
-                "channel_name": "WFS",
-                "parser_func": parsers.parse_wfs_report,
-                "required_files": {
+                "channel": "WFS",
+                "parser": parsers.parse_wfs_report,
+                "files": {
                     "sales": settings.WALMART_SALES_FILENAME_PREFIX,
                     "inventory": settings.WFS_INVENTORY_FILENAME_PREFIX,
                 },
             },
             {
-                "channel_name": "FBT",
-                "parser_func": parsers.parse_fbt_report,
-                "required_files": {
+                "channel": "FBT",
+                "parser": parsers.parse_fbt_report,
+                "files": {
                     "sales": settings.TIKTOK_ORDERS_PREFIX,
                     "inventory": settings.FBT_INVENTORY_FILENAME_PREFIX,
                 },
             },
         ]
 
-    def extract(self) -> pd.DataFrame | None:
+    def extract(self) -> ExtractResult:
         logger.info("--- Starting Inventory Report Process ---")
 
         dataframes = []
 
-        for parser_config in self.PARSER_REGISTRY:
-            source_name = parser_config["channel_name"]
+        for registry_entry in self.PARSER_REGISTRY:
+            source_name = registry_entry["channel"]
             logger.info(f"\n-- Processing Source: {source_name} --")
 
             file_paths = {}
             report_dates = {}
             all_files_found = True
 
-            for file_key, prefix in parser_config["required_files"].items():
+            for file_key, prefix in registry_entry["files"].items():
                 found_file_info = utils.find_latest_report(settings.INPUT_DIR, prefix)
 
                 if found_file_info:
@@ -88,7 +91,6 @@ class InventoryPipeline(DataPipeline):
 
             if not all_files_found:
                 logger.warning(f"Skipping source '{source_name}' due to missing files.")
-                # Populate summary with None
                 if source_name == "Flexport":
                     self.status_summary["DTC"] = None
                     self.status_summary["Reserve"] = None
@@ -96,10 +98,12 @@ class InventoryPipeline(DataPipeline):
                     self.status_summary[source_name] = None
                 continue
 
-            # Run Parser
-            df = parser_config["parser_func"](file_paths)
-            if df is not None and not df.empty:
-                # --- 1. Assign Date Column ---
+            # Run Parser — returns ParseResult
+            parse_result = registry_entry["parser"](file_paths)
+
+            if parse_result.df is not None and not parse_result.df.empty:
+                df = parse_result.df
+
                 primary_date = (
                     report_dates.get("levels")
                     or report_dates.get("inventory")
@@ -108,88 +112,87 @@ class InventoryPipeline(DataPipeline):
                 df["Date"] = primary_date
                 dataframes.append(df)
 
-                for ch in df["channel"].unique():
+                for ch in df["Channel"].unique():
                     self.status_summary[ch] = primary_date
 
+                # Stats logging — mirrors the visibility already in SalesPipeline
+                logger.info(f"  > 📊 Stats for {source_name}:")
+                logger.info(f"    - Rows Analyzed: {parse_result.raw_count}")
+                logger.info(f"    - SKU-Channel Rows Found: {len(df)}")
+
+                present_skus = set(df["SKU"].astype(str).unique())
+                master_skus_set = set(str(s) for s in settings.SKU_ORDER)
+                missing = master_skus_set - present_skus
+                if missing:
+                    logger.warning(
+                        f"    - ⚠️  Missing SKUs ({len(missing)}): {', '.join(sorted(missing))}"
+                    )
+            else:
+                logger.warning(f"  > ⚠️  No data processed for '{source_name}'.")
+                if source_name == "Flexport":
+                    self.status_summary["DTC"] = None
+                    self.status_summary["Reserve"] = None
+                else:
+                    self.status_summary[source_name] = None
+
         if not dataframes:
-            return None
+            return ExtractResult(df=None)
 
-        # --- Combine ---
         logger.info("\nConcatenating reports...")
-        return pd.concat(dataframes, ignore_index=True)
+        combined = pd.concat(dataframes, ignore_index=True)
+        return ExtractResult(df=combined)
 
-    def transform(self, df: pd.DataFrame) -> list[InventoryItem] | None:
+    def transform(self, df: pd.DataFrame, bundle_rows: list[dict]) -> list[InventoryItem] | None:  # noqa: ARG002
         logger.info("\n--- Normalizing Data (Zero-Filling) ---")
 
-        # Identify all channels processed in this run
-        processed_channels = df["channel"].unique()
+        # Force the full configured channel list — same policy as SalesPipeline
+        channels_list = settings.CHANNEL_ORDER
         master_skus = [str(x) for x in settings.SKU_ORDER]
 
         # Get map of Channel -> Date from existing data
-        channel_dates = df.groupby("channel")["Date"].first().to_dict()
+        channel_dates = df.groupby("Channel")["Date"].first().to_dict()
 
-        # Generate template: Channel + SKU -> Date
+        # Generate template: every channel × every SKU
         template_rows = []
-
-        # We want to ensure that for every processed channel, we have an entry for every SKU
-        for ch in processed_channels:
-            # Default to system date if somehow missing
+        for ch in channels_list:
             date_for_channel = channel_dates.get(ch, date.today())
-
             for sku in master_skus:
-                template_rows.append(
-                    {"channel": ch, "sku": sku, "Date": date_for_channel}
-                )
+                template_rows.append({"Channel": ch, "SKU": sku, "Date": date_for_channel})
 
         template_df = pd.DataFrame(template_rows)
 
-        # Merge Actual Data into Template
-        # We'll Left Merge on [channel, sku, Date] to keep the template shape
-        merged_df = pd.merge(
-            template_df, df, on=["channel", "sku", "Date"], how="left"
-        )
+        # Merge actual data into template
+        merged_df = pd.merge(template_df, df, on=["Channel", "SKU", "Date"], how="left")
 
-        # Fill NuNs with 0 for metrics
-        merged_df["units_sold"] = merged_df["units_sold"].fillna(0)
-        merged_df["inventory"] = merged_df["inventory"].fillna(0)
-        merged_df["inbound"] = merged_df["inbound"].fillna(0)
+        # Fill NaNs with 0 for metrics
+        merged_df["Units"] = merged_df["Units"].fillna(0)
+        merged_df["Inventory"] = merged_df["Inventory"].fillna(0)
+        merged_df["Inbound"] = merged_df["Inbound"].fillna(0)
 
         df = merged_df
 
-        # --- 2. Generate IDs (New Structure) ---
+        # --- Generate IDs ---
         logger.info("Generating IDs...")
         system_date_str = self.system_date.strftime("%Y%m%d")
 
-        # ID: YYYYMMDD_Channel_SKU
         df["id"] = (
             system_date_str
             + "_"
-            + df["channel"].astype(str)
+            + df["Channel"].astype(str).str.replace(" ", "_")
             + "_"
-            + df["sku"].astype(str)
+            + df["SKU"].astype(str)
         )
 
-        # SKU_Channel_ID: Channel_SKU
         df["sku_channel_id"] = (
-            df["channel"].astype(str) + "_" + df["sku"].astype(str)
+            df["Channel"].astype(str).str.replace(" ", "_")
+            + "_"
+            + df["SKU"].astype(str)
         )
 
-        # --- 3. Filter Columns & Validate ---
-        # Get column names from Schema aliases
+        # --- Filter Columns & Validate ---
         final_columns = [
             field.alias or name for name, field in InventoryItem.model_fields.items()
         ]
-
-        # Ensure all columns exist (fill missing with default if needed, though parsers should handle it)
-        df = df.rename(
-            columns={
-                "channel": "Channel",
-                "sku": "SKU",
-                "units_sold": "Units",
-                "inventory": "Inventory",
-                "inbound": "Inbound",
-            }
-        )
         df = df[final_columns]
 
         try:
@@ -203,10 +206,4 @@ class InventoryPipeline(DataPipeline):
             logger.error(e)
             return None
 
-        # --- 4. Sort (Optional, for presentation consistency) ---
-        # Note: The DataPipeline.load method will save this data.
-        # Sorting there or here is fine, but lets do it here to ensure saved CSV is clean.
-        # However, listing comprehension loses dataframe structure.
-        # It's better to trust the saved order or standard CSV opening.
-        # But let's stick to the previous behavior of saving what we validated.
         return validated_data

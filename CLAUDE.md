@@ -87,18 +87,19 @@ SAVE_JSON_OUTPUT="true"
 WEBHOOK_URL="https://..."
 ```
 
-### `config/mappings.json` — Master Configuration
+### Config Files — Mappings and Catalog
 
-Four critical mapping objects:
+The `config/` directory contains five JSON files loaded independently by `src/settings.py`:
 
-| Key | Purpose | Count |
-|-----|---------|-------|
-| `DSKU_TO_SKU_MAP` | Flexport DSKU → internal SKU | 32 |
-| `TIKTOK_ID_MAP` | TikTok product ID → `[SKU, ...]` (supports bundles with duplication for 2x) | 50 |
-| `SHOPIFY_SKU_MAP` | Shopify SKU/name → `[SKU, ...]` | 80+ |
-| `AMAZON_SKU_MAP` | Amazon merchant SKU → `[SKU, ...]` | 30+ |
+| File | Key(s) | Purpose |
+| ---- | ------ | ------- |
+| `config/flexport_map.json` | `DSKU_TO_SKU_MAP` | Flexport DSKU → internal SKU (31 entries) |
+| `config/tiktok_map.json` | `TIKTOK_ID_MAP` | TikTok product ID → `[SKU, ...]` (supports bundles with duplication for 2x; 50 entries) |
+| `config/shopify_map.json` | `SHOPIFY_SKU_MAP` | Shopify SKU/name → `[SKU, ...]` (80+ entries) |
+| `config/amazon_map.json` | `AMAZON_SKU_MAP` | Amazon merchant SKU → `[SKU, ...]` (30+ entries) |
+| `config/catalog.json` | `CHANNEL_ORDER`, `SALES_CHANNEL_ORDER`, `SKU_ORDER`, `AMAZON_SKUs` | Master SKU list and channel ordering |
 
-Three ordering lists:
+Channel ordering values:
 
 | Key | Values |
 |-----|--------|
@@ -192,21 +193,48 @@ The pipeline finds the **most recently dated file** matching each prefix — alw
 
 ### New SKU
 
-1. Add to `SKU_ORDER` list in `config/mappings.json`
+1. Add to `SKU_ORDER` list in `config/catalog.json`
 2. Add relevant entries to each applicable channel map (`AMAZON_SKU_MAP`, `TIKTOK_ID_MAP`, etc.)
 3. Add to `AMAZON_SKUs` list if sold on Amazon
 
 ### New Inventory Channel
 
-1. Write a parser in `src/parsers.py` returning a DataFrame with columns `[SKU, Channel, Units, Inventory, Inbound]`
-2. Add entry to `InventoryPipeline._parser_registry` in `src/pipelines/inventory.py`
-3. Add channel name to `CHANNEL_ORDER` in `config/mappings.json`
+All parsers in `src/parsers.py` use the same return contract:
+
+```python
+# Parser signature
+def parse_my_channel(file_paths: dict[str, Path]) -> ParseResult:
+    ...
+    # Return CamelCase columns at the parser boundary
+    df = df.rename(columns={"sku": "SKU", "channel": "Channel", ...})
+    return ParseResult(df=df, raw_count=raw_count)
+```
+
+Steps:
+
+1. Write a parser in `src/parsers.py` returning `ParseResult` with `df` columns `[Channel, SKU, Units, Inventory, Inbound]` (CamelCase).
+
+2. Add an entry to `InventoryPipeline.PARSER_REGISTRY` in `src/pipelines/inventory.py` using the standardized shape:
+
+   ```python
+   {"channel": "MyChannel", "parser": parsers.parse_my_channel, "files": {"primary": settings.MY_PREFIX}}
+   ```
+
+3. Add channel name to `CHANNEL_ORDER` in `config/catalog.json`.
 
 ### New Sales Channel
 
-1. Write a parser in `src/parsers.py` returning a DataFrame with columns `[SKU, Channel, Units, Revenue]`
-2. Add entry to `SalesPipeline._parser_registry` in `src/pipelines/sales.py`
-3. Add channel name to `SALES_CHANNEL_ORDER` in `config/mappings.json`
+Steps:
+
+1. Write a parser in `src/parsers.py` returning `ParseResult` with `df` columns `[Channel, SKU, Units, Revenue]` and `bundle_stats` dict.
+
+2. Add an entry to `SalesPipeline.PARSER_REGISTRY` in `src/pipelines/sales.py` using the standardized shape:
+
+   ```python
+   {"channel": "MyChannel", "parser": parsers.parse_my_channel, "files": {"primary": settings.MY_PREFIX}}
+   ```
+
+3. Add channel name to `SALES_CHANNEL_ORDER` in `config/catalog.json`.
 
 ---
 

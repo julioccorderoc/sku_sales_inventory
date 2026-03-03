@@ -48,21 +48,27 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 # --- Output Configuration ---
 SAVE_JSON_OUTPUT = os.getenv("SAVE_JSON_OUTPUT", "true").lower() == "true"
 
-MAPPINGS_FILE = BASE_DIR / "config" / "mappings.json"
+def _load_json(path: "Path") -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Configuration file missing: {path}")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in configuration file {path}: {e}")
 
-try:
-    with open(MAPPINGS_FILE, "r", encoding="utf-8") as f:
-        _mappings = json.load(f)
-except FileNotFoundError:
-    raise FileNotFoundError(f"Configuration file missing: {MAPPINGS_FILE}")
-except json.JSONDecodeError as e:
-    raise ValueError(f"Invalid JSON in configuration file: {e}")
 
-DSKU_TO_SKU_MAP = _mappings.get("DSKU_TO_SKU_MAP", {})
-TIKTOK_ID_MAP = _mappings.get("TIKTOK_ID_MAP", {})
-SHOPIFY_SKU_MAP = _mappings.get("SHOPIFY_SKU_MAP", {})
-AMAZON_SKU_MAP = _mappings.get("AMAZON_SKU_MAP", {})
-CHANNEL_ORDER = _mappings.get("CHANNEL_ORDER", [])
-SALES_CHANNEL_ORDER = _mappings.get("SALES_CHANNEL_ORDER", [])
-SKU_ORDER = _mappings.get("SKU_ORDER", [])
-AMAZON_SKUs = _mappings.get("AMAZON_SKUs", [])
+_flexport = _load_json(BASE_DIR / "config" / "flexport_map.json")
+_tiktok   = _load_json(BASE_DIR / "config" / "tiktok_map.json")
+_shopify  = _load_json(BASE_DIR / "config" / "shopify_map.json")
+_amazon   = _load_json(BASE_DIR / "config" / "amazon_map.json")
+_catalog  = _load_json(BASE_DIR / "config" / "catalog.json")
+
+DSKU_TO_SKU_MAP     = _flexport.get("DSKU_TO_SKU_MAP", {})
+TIKTOK_ID_MAP       = _tiktok.get("TIKTOK_ID_MAP", {})
+SHOPIFY_SKU_MAP     = _shopify.get("SHOPIFY_SKU_MAP", {})
+AMAZON_SKU_MAP      = _amazon.get("AMAZON_SKU_MAP", {})
+CHANNEL_ORDER       = _catalog.get("CHANNEL_ORDER", [])
+SALES_CHANNEL_ORDER = _catalog.get("SALES_CHANNEL_ORDER", [])
+SKU_ORDER           = _catalog.get("SKU_ORDER", [])
+AMAZON_SKUs         = _catalog.get("AMAZON_SKUs", [])

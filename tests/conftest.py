@@ -100,13 +100,13 @@ def inventory_df():
     """
     Minimal DataFrame in the shape returned by InventoryPipeline.extract()
     and expected by InventoryPipeline.transform().
-    Columns: channel, sku, units_sold, inventory, inbound, Date
+    Columns: Channel, SKU, Units, Inventory, Inbound, Date  (all CamelCase)
     """
     return pd.DataFrame([
-        {"channel": "FBA",  "sku": "1001", "units_sold": 5, "inventory": 100, "inbound": 10, "Date": date(2026, 2, 11)},
-        {"channel": "FBA",  "sku": "2001", "units_sold": 3, "inventory": 50,  "inbound": 5,  "Date": date(2026, 2, 11)},
-        {"channel": "AWD",  "sku": "1001", "units_sold": 0, "inventory": 200, "inbound": 20, "Date": date(2026, 2, 11)},
-        {"channel": "AWD",  "sku": "2001", "units_sold": 0, "inventory": 80,  "inbound": 8,  "Date": date(2026, 2, 11)},
+        {"Channel": "FBA",  "SKU": "1001", "Units": 5, "Inventory": 100, "Inbound": 10, "Date": date(2026, 2, 11)},
+        {"Channel": "FBA",  "SKU": "2001", "Units": 3, "Inventory": 50,  "Inbound": 5,  "Date": date(2026, 2, 11)},
+        {"Channel": "AWD",  "SKU": "1001", "Units": 0, "Inventory": 200, "Inbound": 20, "Date": date(2026, 2, 11)},
+        {"Channel": "AWD",  "SKU": "2001", "Units": 0, "Inventory": 80,  "Inbound": 8,  "Date": date(2026, 2, 11)},
     ])
 
 
@@ -114,7 +114,7 @@ def inventory_df():
 def inventory_df_negative():
     """DataFrame containing a negative inventory value — should fail Pydantic validation."""
     return pd.DataFrame([
-        {"channel": "FBA", "sku": "1001", "units_sold": 0, "inventory": -1, "inbound": 0, "Date": date(2026, 2, 11)},
+        {"Channel": "FBA", "SKU": "1001", "Units": 0, "Inventory": -1, "Inbound": 0, "Date": date(2026, 2, 11)},
     ])
 
 

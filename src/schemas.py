@@ -1,5 +1,24 @@
+from dataclasses import dataclass, field
 from datetime import date
-from pydantic import BaseModel, Field
+from typing import Optional
+
+import pandas as pd
+from pydantic import BaseModel, Field, ConfigDict
+
+
+@dataclass
+class ParseResult:
+    """Standardized return type for all parsers in src/parsers.py."""
+    df: Optional[pd.DataFrame]
+    raw_count: int = 0
+    bundle_stats: dict = field(default_factory=dict)
+
+
+@dataclass
+class ExtractResult:
+    """Standardized return type for DataPipeline.extract()."""
+    df: Optional[pd.DataFrame]
+    bundle_rows: list = field(default_factory=list)
 
 
 class InventoryItem(BaseModel):
@@ -20,8 +39,7 @@ class InventoryItem(BaseModel):
     inventory: int = Field(default=0, ge=0, alias="Inventory")
     inbound: int = Field(default=0, ge=0, alias="Inbound")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SalesItem(BaseModel):
@@ -59,8 +77,7 @@ class SalesItem(BaseModel):
     others_units: int = Field(default=0, alias="Others (Units)")
     others_revenue: float = Field(default=0.0, alias="Others (Revenue)")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SalesRecord(BaseModel):
@@ -78,5 +95,4 @@ class SalesRecord(BaseModel):
     units: int = Field(..., alias="Units")
     revenue: float = Field(..., alias="Revenue")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

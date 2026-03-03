@@ -4,6 +4,7 @@ from pathlib import Path
 
 from . import settings
 from .utils import load_csv, clean_money
+from .schemas import ParseResult
 import logging
 
 logger = logging.getLogger(__name__)
@@ -45,24 +46,23 @@ def _process_bundled_row(row, mapping_dict, key_col, qty_col, rev_col, source_na
 # --- Parsers ---
 
 
-def parse_walmart_sales_report(file_paths: dict):
-    # Returns: (DataFrame, BundleStatsDict)
+def parse_walmart_sales_report(file_paths: dict) -> ParseResult:
     df = load_csv(file_paths["primary"])
     if df is None:
-        return None, {"Units": 0, "Revenue": 0}, 0
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
 
     raw_count = len(df)
     df = df.rename(columns={"Units_Sold": "Units", "GMV": "Revenue"})
     df["Revenue"] = df["Revenue"].apply(clean_money)
 
     grouped = df.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
-    return grouped, {"Units": 0, "Revenue": 0}, raw_count
+    return ParseResult(df=grouped, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
 
 
-def parse_amazon_sales_report(file_paths: dict):
+def parse_amazon_sales_report(file_paths: dict) -> ParseResult:
     df = load_csv(file_paths["primary"])
     if df is None:
-        return None, {"Units": 0, "Revenue": 0}, 0
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
 
     raw_count = len(df)
 
@@ -87,14 +87,14 @@ def parse_amazon_sales_report(file_paths: dict):
             bundle_rev += clean_money(row["Net sales"])
 
     if not expanded_rows:
-        return None, {"Units": 0, "Revenue": 0}, raw_count
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
 
     df_norm = pd.DataFrame(expanded_rows)
     grouped = df_norm.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
-    return grouped, {"Units": bundle_units, "Revenue": bundle_rev}, raw_count
+    return ParseResult(df=grouped, raw_count=raw_count, bundle_stats={"Units": bundle_units, "Revenue": bundle_rev})
 
 
-def parse_tiktok_sales_report(file_paths: dict):
+def parse_tiktok_sales_report(file_paths: dict) -> ParseResult:
     """
     Robust Parsing for TikTok:
     1. Scan first few lines to find the header row containing "SKU ID".
@@ -130,7 +130,7 @@ def parse_tiktok_sales_report(file_paths: dict):
 
     except Exception as e:
         logger.error(f"Error scanning TikTok file for header: {e}")
-        return None, {"Units": 0, "Revenue": 0}, 0
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
 
     # 2. Load with determined parameters
     logger.info(
@@ -140,14 +140,14 @@ def parse_tiktok_sales_report(file_paths: dict):
 
     if df is None:
         logger.warning("  > ⚠️  Could not load TikTok report DataFrame.")
-        return None, {"Units": 0, "Revenue": 0}, 0
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
 
     # Verify expected column exists
     if "SKU ID" not in df.columns:
         logger.warning(
             f"  > ⚠️  'SKU ID' column missing despite header detection. Columns found: {df.columns.tolist()}"
         )
-        return None, {"Units": 0, "Revenue": 0}, 0
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
 
     raw_count = len(df)
 
@@ -167,18 +167,17 @@ def parse_tiktok_sales_report(file_paths: dict):
             bundle_rev += clean_money(row["GMV"])
 
     if not expanded_rows:
-        return None, {"Units": 0, "Revenue": 0}, raw_count
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
 
     df_norm = pd.DataFrame(expanded_rows)
     grouped = df_norm.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
-    return grouped, {"Units": bundle_units, "Revenue": bundle_rev}, raw_count
+    return ParseResult(df=grouped, raw_count=raw_count, bundle_stats={"Units": bundle_units, "Revenue": bundle_rev})
 
 
-def parse_shopify_sales_report(file_paths: dict):
-    # Returns (DataFrame with 'Channel' col, BundleStatsDict keyed by channel)
+def parse_shopify_sales_report(file_paths: dict) -> ParseResult:
     df = load_csv(file_paths["primary"])
     if df is None:
-        return None, {}, 0
+        return ParseResult(df=None, raw_count=0, bundle_stats={})
 
     raw_count = len(df)
 
@@ -222,14 +221,14 @@ def parse_shopify_sales_report(file_paths: dict):
             bundle_stats[bucket]["Revenue"] += clean_money(row["Net sales"])
 
     if not all_expanded:
-        return None, bundle_stats, raw_count
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats=bundle_stats)
 
     # Group by SKU AND Channel
     df_all = pd.DataFrame(all_expanded)
     grouped = (
         df_all.groupby(["SKU", "Channel"])[["Units", "Revenue"]].sum().reset_index()
     )
-    return grouped, bundle_stats, raw_count
+    return ParseResult(df=grouped, raw_count=raw_count, bundle_stats=bundle_stats)
 
 
 def _normalize_and_aggregate_amazon_report(
@@ -263,11 +262,13 @@ def _normalize_and_aggregate_amazon_report(
     return parsed_data
 
 
-def parse_fba_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
+def parse_fba_report(file_paths: dict[str, Path]) -> ParseResult:
     """Loads FBA data and transforms it into the standard normalized format."""
     df = load_csv(file_paths["primary"])
     if df is None:
-        return None
+        return ParseResult(df=None)
+
+    raw_count = len(df)
 
     # Define the specific column mappings for an FBA report
     fba_column_map = {
@@ -288,42 +289,120 @@ def parse_fba_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     df_normalized["channel"] = "FBA"
     df_normalized = df_normalized.fillna(0)
 
+    # Rename to CamelCase at the parser boundary
+    df_normalized = df_normalized.rename(columns={
+        "sku": "SKU",
+        "channel": "Channel",
+        "units_sold": "Units",
+        "inventory": "Inventory",
+        "inbound": "Inbound",
+    })
+
     logger.info(f"✅ Parsed {file_paths['primary'].name} successfully.")
-    return df_normalized
+    return ParseResult(df=df_normalized, raw_count=raw_count)
 
 
-def parse_fbt_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
+def parse_fbt_inventory_report(file_paths: dict[str, Path]) -> ParseResult:
+    """
+    Parses the FBT Inventory report (TikTok Fulfillment).
+    Aggregates inventory across multiple locations for each SKU.
+    """
+    df = load_csv(file_paths["primary"])
+    if df is None:
+        return ParseResult(df=None)
+
+    # Check if df is empty
+    if df.empty:
+        return ParseResult(df=None)
+
+    # Rename columns for clarity before processing
+    col_map = {
+        "Reference code": "sku",
+        "Available inventory": "inventory",
+        "In Transit: Total Quantity": "inbound",
+    }
+
+    # Check if necessary columns exist
+    missing_cols = [c for c in col_map.keys() if c not in df.columns]
+    if missing_cols:
+        logger.error(f"❌ FBT Report missing columns: {missing_cols}")
+        return ParseResult(df=None)
+
+    raw_count = len(df)
+
+    # Rename
+    df = df.rename(columns=col_map)
+
+    # Convert to numeric, forcing errors to NaN then 0
+    df["inventory"] = pd.to_numeric(df["inventory"], errors="coerce").fillna(0)
+    df["inbound"] = pd.to_numeric(df["inbound"], errors="coerce").fillna(0)
+
+    # Group by SKU (Reference code) and sum
+    grouped = df.groupby("sku")[["inventory", "inbound"]].sum().reset_index()
+
+    # Ensure SKU is string and clean
+    grouped["sku"] = grouped["sku"].astype(str).str.strip()
+
+    # Filter/Merge with Master SKU List
+    full_sku_template = pd.DataFrame({"sku": settings.SKU_ORDER})
+    full_sku_template["sku"] = full_sku_template["sku"].astype(str)
+
+    df_normalized = pd.merge(full_sku_template, grouped, on="sku", how="left")
+
+    df_normalized["channel"] = "FBT"
+    df_normalized["units_sold"] = 0
+    df_normalized = df_normalized.fillna(0)
+
+    # Rename to CamelCase at the parser boundary
+    df_normalized = df_normalized.rename(columns={
+        "sku": "SKU",
+        "channel": "Channel",
+        "units_sold": "Units",
+        "inventory": "Inventory",
+        "inbound": "Inbound",
+    })
+
+    logger.info(f"✅ Parsed {file_paths['primary'].name} successfully.")
+    return ParseResult(df=df_normalized, raw_count=raw_count)
+
+
+def parse_fbt_report(file_paths: dict[str, Path]) -> ParseResult:
     """
     Combined FBT parser that mirrors `parse_wfs_report` structure.
     Expects `file_paths` to contain:
       - 'sales': TikTok Orders file (Fulfillment by TikTok Shop)
       - 'inventory': FBT inventory file
 
-    Returns a DataFrame with columns: sku, units_sold, inventory, inbound, channel
+    Returns a ParseResult with CamelCase columns: Channel, SKU, Units, Inventory, Inbound
     """
     # Load inventory portion using existing inventory parser
     inv_path = file_paths.get("inventory")
     if inv_path is None:
-        return None
+        return ParseResult(df=None)
     inv_paths = {"primary": inv_path}
-    inventory_df = parse_fbt_inventory_report(inv_paths)
-    if inventory_df is None:
-        return None
+    inventory_result = parse_fbt_inventory_report(inv_paths)
+    if inventory_result.df is None:
+        return ParseResult(df=None)
 
-    # Load sales portion using existing TikTok orders parser (returns grouped DF)
-    sales_grouped, _, _ = parse_tiktok_orders_report(
-        {"primary": file_paths.get("sales")}
-    )
+    inventory_df = inventory_result.df
+
+    # Load sales portion using existing TikTok orders parser (returns ParseResult)
+    tiktok_result = parse_tiktok_orders_report({"primary": file_paths.get("sales")})
+    sales_grouped = tiktok_result.df
 
     # If sales parser returned None, create empty grouped frame
     if sales_grouped is None:
         sales_grouped = pd.DataFrame(columns=["SKU", "Units", "Revenue"])
 
-    # Normalize column names for merge
+    # Normalize column names for merge (inventory_df is already CamelCase; tiktok returns CamelCase)
+    # Temporarily rename to lowercase for the merge
+    inventory_df = inventory_df.rename(columns={
+        "SKU": "sku", "Channel": "channel", "Units": "units_sold",
+        "Inventory": "inventory", "Inbound": "inbound",
+    })
+
     if "SKU" in sales_grouped.columns:
-        sales_grouped = sales_grouped.rename(
-            columns={"SKU": "sku", "Units": "units_sold"}
-        )
+        sales_grouped = sales_grouped.rename(columns={"SKU": "sku", "Units": "units_sold"})
     else:
         sales_grouped = sales_grouped.rename(lambda c: c.lower(), axis=1)
 
@@ -331,7 +410,7 @@ def parse_fbt_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     if "units_sold" not in sales_grouped.columns:
         sales_grouped["units_sold"] = 0
 
-    # Merge sales into inventory template (outer join handled by inventory template already)
+    # Merge sales into inventory template
     merged = pd.merge(
         inventory_df,
         sales_grouped[["sku", "units_sold"]],
@@ -358,19 +437,30 @@ def parse_fbt_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     merged["channel"] = "FBT"
     merged = merged.fillna(0)
 
+    # Rename to CamelCase at the parser boundary
+    merged = merged.rename(columns={
+        "sku": "SKU",
+        "channel": "Channel",
+        "units_sold": "Units",
+        "inventory": "Inventory",
+        "inbound": "Inbound",
+    })
+
     logger.info("✅ Parsed FBT combined (sales + inventory) reports successfully.")
-    return merged
+    return ParseResult(df=merged, raw_count=inventory_result.raw_count)
 
 
-def parse_awd_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
+def parse_awd_report(file_paths: dict[str, Path]) -> ParseResult:
     """Loads and parses the AWD report, transforming it to the standard normalized format."""
     df = load_csv(file_paths["primary"], skiprows=2)
     if df is None:
-        return None
+        return ParseResult(df=None)
+
+    raw_count = len(df)
 
     # Define the specific column mappings for an AWD report
     awd_column_map = {
-        "inventory": "Available in AWD (units)",  # "Reserved in AWD (units)"],
+        "inventory": "Available in AWD (units)",
         "inbound": "Inbound to AWD (units)",
     }
 
@@ -387,11 +477,20 @@ def parse_awd_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     df_normalized["units_sold"] = 0  # No sales data in this report
     df_normalized = df_normalized.fillna(0)
 
+    # Rename to CamelCase at the parser boundary
+    df_normalized = df_normalized.rename(columns={
+        "sku": "SKU",
+        "channel": "Channel",
+        "units_sold": "Units",
+        "inventory": "Inventory",
+        "inbound": "Inbound",
+    })
+
     logger.info(f"✅ Parsed {file_paths['primary'].name} successfully.")
-    return df_normalized
+    return ParseResult(df=df_normalized, raw_count=raw_count)
 
 
-def parse_flexport_reports(file_paths: dict[str, Path]) -> pd.DataFrame | None:
+def parse_flexport_reports(file_paths: dict[str, Path]) -> ParseResult:
     """
     Parses Flexport data using the new 3-file system:
     1. Levels (Inventory): Provides stock levels for DTC and Reserve.
@@ -403,47 +502,36 @@ def parse_flexport_reports(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     inbound_df = load_csv(file_paths["inbound"])
 
     if levels_df is None or orders_df is None:
-        return None
+        return ParseResult(df=None)
+
+    raw_count = len(orders_df)
 
     # --- Part A: Process Inventory (Levels) ---
-    # Filter for our SKUs (MSKU column)
     levels_filtered = levels_df[levels_df["MSKU"].isin(settings.SKU_ORDER)].copy()
 
-    # Ensure numeric columns are actually numeric
     cols_to_sum = ["DTC Total Quantity", "RS Total Quantity", "Ops WIP Quantity"]
     for col in cols_to_sum:
         levels_filtered[col] = pd.to_numeric(
             levels_filtered[col], errors="coerce"
         ).fillna(0)
 
-    # Group by MSKU (Internal SKU) and sum
     levels_agg = levels_filtered.groupby("MSKU")[cols_to_sum].sum().reset_index()
     levels_agg = levels_agg.rename(columns={"MSKU": "sku"})
 
-    # Calculate final inventory columns
-    # DTC is just the sum of DTC Total Quantity
     levels_agg["dtc_inventory"] = levels_agg["DTC Total Quantity"]
-    # Reserve is (RS Total - Ops WIP)
     levels_agg["reserve_inventory"] = (
         levels_agg["RS Total Quantity"] - levels_agg["Ops WIP Quantity"]
     )
-    # Ensure no negative inventory logic creeps in
     levels_agg["reserve_inventory"] = levels_agg["reserve_inventory"].clip(lower=0)
 
     # --- Part B: Process Sales (Orders) ---
-    # 1. Filter out Cancelled orders
     orders_clean = orders_df[orders_df["Order Status"] != "CANCELLED"].copy()
 
-    # 2. Extract Items from JSON string
-    # The 'Items' column looks like: '[{"dsku":"XYZ","qty":1}]'
-    # We parse the JSON, then 'explode' the list so one order with 2 items becomes 2 rows
     orders_clean["Items"] = orders_clean["Items"].apply(
         lambda x: json.loads(x) if isinstance(x, str) else []
     )
     orders_exploded = orders_clean.explode("Items")
 
-    # 3. Normalize Data from the JSON dicts
-    # Extract DSKU and Qty into their own columns
     orders_exploded["dsku"] = orders_exploded["Items"].apply(
         lambda x: x.get("dsku") if isinstance(x, dict) else None
     )
@@ -451,18 +539,14 @@ def parse_flexport_reports(file_paths: dict[str, Path]) -> pd.DataFrame | None:
         lambda x: x.get("qty", 0) if isinstance(x, dict) else 0
     )
 
-    # 4. Map DSKU to SKU
     orders_exploded["sku"] = orders_exploded["dsku"].map(settings.DSKU_TO_SKU_MAP)
 
-    # 5. Filter for valid mapped SKUs only
     orders_valid = orders_exploded[orders_exploded["sku"].notna()].copy()
 
-    # 6. Aggregate Sales by SKU
     sales_agg = orders_valid.groupby("sku")["qty"].sum().reset_index()
     sales_agg = sales_agg.rename(columns={"qty": "units_sold"})
 
     # --- Part C: Process Inbound (Legacy Logic) ---
-    # We initialize inbound to 0 for all SKUs, then update if file exists
     inbound_data = pd.DataFrame({"sku": settings.SKU_ORDER, "inbound": 0})
 
     if inbound_df is not None:
@@ -486,7 +570,6 @@ def parse_flexport_reports(file_paths: dict[str, Path]) -> pd.DataFrame | None:
             columns={"MSKU": "sku", "inbound_calc": "inbound"}
         )
 
-        # Merge calculated inbound into the template
         inbound_data = pd.merge(
             pd.DataFrame({"sku": settings.SKU_ORDER}),
             inbound_grouped,
@@ -496,17 +579,10 @@ def parse_flexport_reports(file_paths: dict[str, Path]) -> pd.DataFrame | None:
 
     # --- Part D: Merge and Finalize ---
 
-    # We need to construct two separate DataFrames: one for DTC, one for Reserve
-
     # 1. DTC DataFrame Construction
     dtc_final = pd.DataFrame({"sku": settings.SKU_ORDER})
-    # Add Inventory
-    dtc_final = pd.merge(
-        dtc_final, levels_agg[["sku", "dtc_inventory"]], on="sku", how="left"
-    )
-    # Add Sales
+    dtc_final = pd.merge(dtc_final, levels_agg[["sku", "dtc_inventory"]], on="sku", how="left")
     dtc_final = pd.merge(dtc_final, sales_agg, on="sku", how="left")
-    # Add Inbound (DTC only gets inbound usually)
     dtc_final = pd.merge(dtc_final, inbound_data, on="sku", how="left")
 
     dtc_final["channel"] = "DTC"
@@ -514,25 +590,33 @@ def parse_flexport_reports(file_paths: dict[str, Path]) -> pd.DataFrame | None:
 
     # 2. Reserve DataFrame Construction
     reserve_final = pd.DataFrame({"sku": settings.SKU_ORDER})
-    # Add Inventory
     reserve_final = pd.merge(
         reserve_final, levels_agg[["sku", "reserve_inventory"]], on="sku", how="left"
     )
 
     reserve_final["channel"] = "Reserve"
-    reserve_final["units_sold"] = 0  # Reserve doesn't sell directly
-    reserve_final["inbound"] = 0  # Reserve doesn't have inbound in this logic
+    reserve_final["units_sold"] = 0
+    reserve_final["inbound"] = 0
     reserve_final = reserve_final.rename(columns={"reserve_inventory": "inventory"})
 
     # 3. Concatenate
     df_normalized = pd.concat([dtc_final, reserve_final], ignore_index=True)
     df_normalized = df_normalized.fillna(0)
 
+    # Rename to CamelCase at the parser boundary
+    df_normalized = df_normalized.rename(columns={
+        "sku": "SKU",
+        "channel": "Channel",
+        "units_sold": "Units",
+        "inventory": "Inventory",
+        "inbound": "Inbound",
+    })
+
     logger.info("✅ Parsed Flexport (DTC & Reserve) using new Levels/Orders reports.")
-    return df_normalized
+    return ParseResult(df=df_normalized, raw_count=raw_count)
 
 
-def parse_wfs_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
+def parse_wfs_report(file_paths: dict[str, Path]) -> ParseResult:
     """
     Loads and merges Walmart Sales and WFS Inventory reports.
     Expects a dict with 'sales' and 'inventory' file paths.
@@ -541,12 +625,13 @@ def parse_wfs_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     inventory_df = load_csv(file_paths["inventory"])
 
     if sales_df is None or inventory_df is None:
-        return None
+        return ParseResult(df=None)
+
+    raw_count = len(sales_df)
 
     # Step 1: Process the Sales Report
     sales_data = sales_df.rename(columns={"SKU": "sku", "Units_Sold": "units_sold"})
     sales_data = sales_data[["sku", "units_sold"]]
-    # Defensively aggregate in case a SKU appears multiple times
     sales_data = sales_data.groupby("sku").sum().reset_index()
 
     # Step 2: Process the Inventory Report
@@ -559,94 +644,42 @@ def parse_wfs_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
     )
     inventory_data = inventory_data[["sku", "inventory", "inbound"]]
 
-    # Step 3: Merge sales and inventory data.
-    # An outer join is crucial to keep SKUs that exist in one report but not the other.
+    # Step 3: Merge sales and inventory data (outer join)
     merged_data = pd.merge(sales_data, inventory_data, on="sku", how="outer")
 
-    # Step 4: Ensure all desired SKUs are present in the final output.
+    # Step 4: Ensure all desired SKUs are present
     full_sku_template = pd.DataFrame({"sku": settings.SKU_ORDER})
     df_normalized = pd.merge(full_sku_template, merged_data, on="sku", how="left")
 
-    # Step 5: Finalize the standard format
+    # Step 5: Finalize
     df_normalized["channel"] = "WFS"
-    df_normalized = df_normalized.fillna(0)  # Fill NaNs for any missing values with 0
-
-    logger.info("✅ Parsed Walmart/WFS reports successfully.")
-    return df_normalized
-
-
-def parse_fbt_inventory_report(file_paths: dict[str, Path]) -> pd.DataFrame | None:
-    """
-    Parses the FBT Inventory report (TikTok Fulfillment).
-    Aggregates inventory across multiple locations for each SKU.
-    """
-    df = load_csv(file_paths["primary"])
-    if df is None:
-        return None
-
-    # Required columns from the user request
-    # "Reference code": SKU
-    # "Available inventory": Inventory -> inventory
-    # "In Transit: Total Quantity": Inbound -> inbound
-
-    # Check if df is empty
-    if df.empty:
-        return None
-
-    # Rename columns for clarity before processing
-    col_map = {
-        "Reference code": "sku",
-        "Available inventory": "inventory",
-        "In Transit: Total Quantity": "inbound",
-    }
-
-    # Check if necessary columns exist
-    missing_cols = [c for c in col_map.keys() if c not in df.columns]
-    if missing_cols:
-        logger.error(f"❌ FBT Report missing columns: {missing_cols}")
-        return None
-
-    # Rename
-    df = df.rename(columns=col_map)
-
-    # Convert to numeric, forcing errors to NaN then 0
-    df["inventory"] = pd.to_numeric(df["inventory"], errors="coerce").fillna(0)
-    df["inbound"] = pd.to_numeric(df["inbound"], errors="coerce").fillna(0)
-
-    # Group by SKU (Reference code) and sum
-    grouped = df.groupby("sku")[["inventory", "inbound"]].sum().reset_index()
-
-    # Ensure SKU is string and clean
-    grouped["sku"] = grouped["sku"].astype(str).str.strip()
-
-    # Filter/Merge with Master SKU List
-    # We want to keep only relevant SKUs and ensure all are present
-    full_sku_template = pd.DataFrame({"sku": settings.SKU_ORDER})
-    # Ensure template SKU is string
-    full_sku_template["sku"] = full_sku_template["sku"].astype(str)
-
-    df_normalized = pd.merge(full_sku_template, grouped, on="sku", how="left")
-
-    df_normalized["channel"] = "FBT"
-    df_normalized["units_sold"] = 0
     df_normalized = df_normalized.fillna(0)
 
-    logger.info(f"✅ Parsed {file_paths['primary'].name} successfully.")
-    return df_normalized
+    # Rename to CamelCase at the parser boundary
+    df_normalized = df_normalized.rename(columns={
+        "sku": "SKU",
+        "channel": "Channel",
+        "units_sold": "Units",
+        "inventory": "Inventory",
+        "inbound": "Inbound",
+    })
+
+    logger.info("✅ Parsed Walmart/WFS reports successfully.")
+    return ParseResult(df=df_normalized, raw_count=raw_count)
 
 
-def parse_tiktok_orders_report(file_paths: dict):
+def parse_tiktok_orders_report(file_paths: dict) -> ParseResult:
     """
     Placeholder for TikTok Orders report.
     Expected file: TikTok_orders_yyyy_mm_dd.csv
     """
     path = file_paths.get("primary")
     if not path or not path.exists():
-        return None, {"Units": 0, "Revenue": 0}, 0
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
 
     df = load_csv(path)
     if df is None:
-        return None, {"Units": 0, "Revenue": 0}, 0
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
 
     # Raw row count before filtering
     raw_count = len(df)
@@ -668,7 +701,7 @@ def parse_tiktok_orders_report(file_paths: dict):
         logger.error(
             f"❌ TikTok Orders report missing expected columns. Available: {df.columns.tolist()}"
         )
-        return None, {"Units": 0, "Revenue": 0}, raw_count
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
 
     df = df[present_cols].copy()
     logger.info(f"TikTok Orders: Rows after column filter: {len(df)}")
@@ -680,7 +713,7 @@ def parse_tiktok_orders_report(file_paths: dict):
     else:
         df["Fulfillment Type"] = ""
 
-    # 1) Filter out cancelled orders (case-insensitive contains 'cancel')
+    # 1) Filter out cancelled orders
     df = df[~df["Order Status"].str.lower().str.contains("cancel", na=False)].copy()
     logger.info(f"TikTok Orders: Rows after Order Status filter: {len(df)}")
 
@@ -691,7 +724,7 @@ def parse_tiktok_orders_report(file_paths: dict):
     logger.info(f"TikTok Orders: Rows after Fulfillment Type filter: {len(df)}")
 
     if df.empty:
-        return None, {"Units": 0, "Revenue": 0}, raw_count
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
 
     # Ensure numeric conversions
     if "Quantity" in df.columns:
@@ -706,7 +739,6 @@ def parse_tiktok_orders_report(file_paths: dict):
 
     # Ensure SKU ID is string for mapping
     df["SKU ID"] = df["SKU ID"].astype(str).str.strip()
-    # Aggregate by SKU ID
     grouped_src = df.groupby("SKU ID")[["Quantity", "Order Amount"]].sum().reset_index()
     logger.info(f"TikTok Orders: Grouped SKUs: {grouped_src['SKU ID'].tolist()}")
 
@@ -717,7 +749,6 @@ def parse_tiktok_orders_report(file_paths: dict):
 
     mapped_skus = []
     for _, row in grouped_src.iterrows():
-        # _process_bundled_row expects a row-like object with the source columns
         new_rows, is_bundle = _process_bundled_row(
             row,
             settings.TIKTOK_ID_MAP,
@@ -734,9 +765,9 @@ def parse_tiktok_orders_report(file_paths: dict):
     logger.info(f"TikTok Orders: Mapped internal SKUs: {mapped_skus}")
 
     if not expanded_rows:
-        return None, {"Units": 0, "Revenue": 0}, raw_count
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
 
     df_norm = pd.DataFrame(expanded_rows)
     grouped = df_norm.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
 
-    return grouped, {"Units": bundle_units, "Revenue": bundle_rev}, raw_count
+    return ParseResult(df=grouped, raw_count=raw_count, bundle_stats={"Units": bundle_units, "Revenue": bundle_rev})
