@@ -1,0 +1,5 @@
+Report Type,AWD Inventory Report
+Generated,2026-02-11
+Product Name,SKU,FNSKU,ASIN,Inbound to AWD (units),Inbound to AWD (cases),Available in AWD (units),Available in AWD (cases)
+Product A,1001,FNSKU1,ASIN1,10,2,150,15
+Product B,2001,FNSKU2,ASIN2,5,1,80,8

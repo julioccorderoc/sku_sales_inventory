@@ -1,0 +1,6 @@
+
+Order ID,Order Status,SKU ID,Seller SKU,Quantity,Order Amount,Fulfillment Type,Warehouse Name
+ORD001,Completed,1729499998780101089,SKU_A,2,50.00,Fulfillment by TikTok Shop,Warehouse US
+ORD002,Cancelled,1729499998780101089,SKU_A,1,25.00,Fulfillment by TikTok Shop,Warehouse US
+ORD003,Completed,1729499998780101089,SKU_A,3,75.00,Seller Shipping,Warehouse US
+ORD004,Completed,1729500444198670817,SKU_B_BUNDLE,1,30.00,Fulfillment by TikTok Shop,Warehouse US

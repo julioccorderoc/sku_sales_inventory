@@ -1,0 +1,5 @@
+Snapshot Date,DSKU,MSKU,Name,Facility Location,Facility,DTC Total Quantity,RS Total Quantity,Unavailable for Sale Quantity,Ops WIP Quantity,Units in Pack/Boxes,# of Packs/Boxes,In Transit Quantity
+2026-02-11,DSKU1,1001,Product A,US,Warehouse1,100,50,0,10,1,1,5
+2026-02-11,DSKU2,1001,Product A,UK,Warehouse2,50,20,0,5,1,1,2
+2026-02-11,DSKU3,2001,Product B,US,Warehouse1,80,30,0,8,1,1,3
+2026-02-11,DSKU_UNK,UNKNOWN_MSKU,Unknown,US,Warehouse1,10,5,0,0,1,1,0

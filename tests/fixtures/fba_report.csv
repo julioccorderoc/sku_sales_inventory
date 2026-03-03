@@ -1,0 +1,4 @@
+Country,Product Name,FNSKU,Merchant SKU,ASIN,Condition,Units Sold Last 30 Days,Available,FC transfer,Inbound
+US,Product A,FNSKU1,1001,ASIN1,New,10,40,3,5
+US,Product B Softgels,FNSKU2,3001s,ASIN2,New,4,15,0,2
+US,Unknown Product,FNSKU3,UNKNOWN_SKU,ASIN3,New,2,8,0,0

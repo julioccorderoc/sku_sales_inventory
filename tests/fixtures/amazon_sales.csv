@@ -1,0 +1,4 @@
+Amazon store,Start date,End date,Parent ASIN,ASIN,FNSKU,MSKU,Currency code,Average sales price,Units sold,Units returned,Net units sold,Sales,Net sales
+US Store,2026-01-01,2026-01-31,PARENT1,ASIN1,FNSKU1,1001,USD,25.99,11,1,10,$259.90,$259.90
+US Store,2026-01-01,2026-01-31,PARENT2,ASIN2,FNSKU2,3001s,USD,15.99,5,0,5,$79.95,$79.95
+US Store,2026-01-01,2026-01-31,PARENT3,ASIN3,FNSKU3,UNKNOWN_MSKU,USD,9.99,3,0,3,$29.97,$29.97

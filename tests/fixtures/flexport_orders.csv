@@ -1,0 +1,4 @@
+CREATEDAT,Marketplace,Marketplace Order ID,Deliverr Order ID,Order Status,Items
+2026-02-11,Amazon,AMZ001,DEL001,FULFILLED,"[{""dsku"":""DB59IQ90Q2K"",""qty"":2}]"
+2026-02-11,Amazon,AMZ002,DEL002,CANCELLED,"[{""dsku"":""DJN5OWEKCRR"",""qty"":1}]"
+2026-02-11,Amazon,AMZ003,DEL003,FULFILLED,"[{""dsku"":""UNKNOWN_DSKU"",""qty"":1}]"

@@ -16,7 +16,7 @@
 
 ### EPIC-001 — Automated Test Suite
 
-* **Status:** Pending
+* **Status:** Complete (2026-03-02)
 * **Dependencies:** None
 * **Business Objective:** Catch parser breakage immediately when seller platforms change their CSV export formats, preventing silent data corruption from reaching the webhook and downstream n8n workflows.
 * **Technical Boundary:** Add a `tests/` directory with pytest. Cover all parsers in `src/parsers.py` using fixture CSV files, and the core transform logic in both pipelines. Do not test the webhook POST or file I/O in unit tests — those belong in integration tests.

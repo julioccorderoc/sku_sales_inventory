@@ -1,0 +1,4 @@
+Goods ID,Goods name,Reference code,Status,Warehouse name,Total inventory,Available inventory,Defective,Good&Reserved,In Transit: Total Quantity
+GOODS1,Product A,1001,Active,Warehouse US,100,80,0,5,10
+GOODS2,Product A,1001,Active,Warehouse UK,50,40,0,2,5
+GOODS3,Unknown Product,UNKNOWN_SKU,Active,Warehouse US,10,8,0,0,0
