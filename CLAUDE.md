@@ -25,7 +25,7 @@ python -c "from src.pipelines.inventory import InventoryPipeline; InventoryPipel
 python -c "from src.pipelines.sales import SalesPipeline; SalesPipeline().run()"
 
 # Combine historical inventory reports into a single file
-python combine_inventory.py
+python main.py --combine
 
 # Install dependencies (uses uv, not pip)
 uv sync

@@ -1,7 +1,7 @@
 # ROADMAP
 
 * **Version:** 0.1.0
-* **Last Updated:** 2026-03-02
+* **Last Updated:** 2026-03-03
 * **Primary Human Owner:** Julio Cordero
 
 ## Operating Rules for the Planner Agent
@@ -60,7 +60,7 @@
 
 ### EPIC-004 — Standardize Pipeline Architecture
 
-* **Status:** Active (2026-03-03)
+* **Status:** Complete (2026-03-03)
 * **Dependencies:** EPIC-001 (tests must exist before a refactor of this scope)
 * **Business Objective:** Reduce cognitive overhead when adding new channels. A developer adding a new inventory source and a new sales channel should follow the exact same pattern and registry contract.
 * **Technical Boundary:** Normalize the divergences between `InventoryPipeline` and `SalesPipeline` without changing output schemas or business logic. Specific issues to resolve:
@@ -82,7 +82,7 @@
 
 ### EPIC-005 — Webhook Retry Logic
 
-* **Status:** Pending
+* **Status:** Complete (2026-03-03)
 * **Dependencies:** None
 * **Business Objective:** Prevent data loss when the n8n webhook is transiently unreachable, avoiding the need to re-run the entire pipeline because of a momentary network issue.
 * **Technical Boundary:** Changes are isolated to `src/data_handler.py`. Add retry with exponential backoff on the `post_to_webhook` function. No changes to pipeline logic or output file generation.
@@ -97,7 +97,7 @@
 
 ### EPIC-006 — Integrate `combine_inventory.py`
 
-* **Status:** Pending
+* **Status:** Complete (2026-03-03)
 * **Dependencies:** None
 * **Business Objective:** Make historical inventory aggregation a first-class operation accessible through `main.py` rather than a disconnected utility script.
 * **Technical Boundary:** Fold the logic of `combine_inventory.py` into `main.py` behind a `--combine` flag. The original script can remain in place or be removed once the flag is confirmed working.
@@ -111,7 +111,7 @@
 
 ### EPIC-007 — Run History & Data Continuity
 
-* **Status:** Pending
+* **Status:** Active (2026-03-03)
 * **Dependencies:** EPIC-006 (combine script must be integrated before history layer is built on top of it)
 * **Business Objective:** Enable anomaly detection, idempotent runs, and trend reporting — all of which require a persistent record of prior pipeline runs to compare against. The current workflow saves output data to Excel manually; any solution must integrate with or extend that existing habit.
 * **Technical Boundary:** Produce a decision document at `docs/history_options.md` — no code. Evaluate the viable storage approaches given the current Excel-based workflow, and provide a clear recommendation. The document should cover at minimum:

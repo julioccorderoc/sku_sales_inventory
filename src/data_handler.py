@@ -2,6 +2,7 @@ import pandas as pd
 import requests
 import json
 import logging
+import time
 from typing import Any
 from datetime import date, datetime
 
@@ -75,9 +76,35 @@ def post_to_webhook(
         ],
     }
 
-    try:
-        response = requests.post(settings.WEBHOOK_URL, json=payload, timeout=60)
-        response.raise_for_status()
+    for attempt in range(1, settings.WEBHOOK_MAX_RETRIES + 1):
+        try:
+            response = requests.post(settings.WEBHOOK_URL, json=payload, timeout=60)
+        except requests.exceptions.ConnectionError as e:
+            if attempt < settings.WEBHOOK_MAX_RETRIES:
+                delay = settings.WEBHOOK_RETRY_BACKOFF ** attempt
+                logger.warning(f"⚠️  Connection error on attempt {attempt}/{settings.WEBHOOK_MAX_RETRIES}. Retrying in {delay:.0f}s...")
+                time.sleep(delay)
+                continue
+            logger.error(f"❌ Webhook connection failed after {settings.WEBHOOK_MAX_RETRIES} attempts: {e}")
+            return
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ Error posting to webhook: {e}")
+            return
+
+        if response.status_code >= 500:
+            if attempt < settings.WEBHOOK_MAX_RETRIES:
+                delay = settings.WEBHOOK_RETRY_BACKOFF ** attempt
+                logger.warning(f"⚠️  Webhook returned HTTP {response.status_code} on attempt {attempt}/{settings.WEBHOOK_MAX_RETRIES}. Retrying in {delay:.0f}s...")
+                time.sleep(delay)
+                continue
+            logger.error(f"❌ Webhook failed after {settings.WEBHOOK_MAX_RETRIES} attempts. Final status: {response.status_code}")
+            return
+
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"❌ Error posting to webhook: {e}")
+            return
+
         logger.info(f"✅ {report_type.capitalize()} data successfully posted.")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ Error posting to webhook: {e}")
+        return

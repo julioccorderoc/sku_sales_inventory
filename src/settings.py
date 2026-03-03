@@ -45,6 +45,9 @@ SHOPIFY_SALES_PREFIX = "Shopify_sales_"
 
 # --- Webhook ---
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEBHOOK_MAX_RETRIES = int(os.getenv("WEBHOOK_MAX_RETRIES", "3"))
+# Base for exponential backoff: delay = WEBHOOK_RETRY_BACKOFF ** attempt (2s, 4s, 8s)
+WEBHOOK_RETRY_BACKOFF = float(os.getenv("WEBHOOK_RETRY_BACKOFF", "2.0"))
 # --- Output Configuration ---
 SAVE_JSON_OUTPUT = os.getenv("SAVE_JSON_OUTPUT", "true").lower() == "true"
 
