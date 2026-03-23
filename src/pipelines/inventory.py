@@ -169,6 +169,19 @@ class InventoryPipeline(DataPipeline):
         merged_df["Inventory"] = merged_df["Inventory"].fillna(0)
         merged_df["Inbound"] = merged_df["Inbound"].fillna(0)
 
+        # Warn about and clip negative values (e.g., returns/refunds in source data)
+        for col in ["Units", "Inventory", "Inbound"]:
+            neg_mask = merged_df[col] < 0
+            if neg_mask.any():
+                offenders = merged_df[neg_mask][["Channel", "SKU", col]]
+                logger.warning(
+                    f"⚠️  Clipping {neg_mask.sum()} negative '{col}' value(s) to 0 "
+                    f"(likely returns/refunds in source data):"
+                )
+                for _, row in offenders.iterrows():
+                    logger.warning(f"    Channel={row['Channel']}, SKU={row['SKU']}, {col}={row[col]}")
+        merged_df[["Units", "Inventory", "Inbound"]] = merged_df[["Units", "Inventory", "Inbound"]].clip(lower=0)
+
         df = merged_df
 
         # --- Generate IDs ---
@@ -203,6 +216,17 @@ class InventoryPipeline(DataPipeline):
             logger.info("✅ Data validation successful.")
         except ValidationError as e:
             logger.error("❌ Data validation failed!")
+            # Surface the offending rows so the source channel/SKU is identifiable
+            problem_mask = (df["Units"] < 0) | (df["Inventory"] < 0) | (df["Inbound"] < 0)
+            problem_rows = df[problem_mask]
+            if not problem_rows.empty:
+                logger.error(f"  Rows with out-of-range values ({len(problem_rows)}):")
+                for _, row in problem_rows.iterrows():
+                    logger.error(
+                        f"    Channel={row.get('Channel')}, SKU={row.get('SKU')}, "
+                        f"Units={row.get('Units')}, Inventory={row.get('Inventory')}, "
+                        f"Inbound={row.get('Inbound')}"
+                    )
             logger.error(e)
             return None
 
