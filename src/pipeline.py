@@ -22,6 +22,8 @@ class DataPipeline(ABC):
         self.test_mode = test_mode
         # Status summary tracks the data date for each channel
         self.status_summary = {ch: None for ch in self.channels}
+        # Populated by subclass extract() with the .name of each input file used
+        self.source_files: list[str] = []
 
     def run(self):
         """
@@ -83,6 +85,7 @@ class DataPipeline(ABC):
         # 2. Save Code Outputs (CSV/JSON)
         if validated_data:
             data_handler.save_outputs(validated_data, f"{self.report_type}_report")
+            data_handler.log_run_history(validated_data, self.report_type, self.source_files)
         else:
             logger.warning("No data to save to disk.")
 

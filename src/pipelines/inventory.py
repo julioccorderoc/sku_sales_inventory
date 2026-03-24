@@ -77,6 +77,7 @@ class InventoryPipeline(DataPipeline):
                     path, report_date = found_file_info
                     file_paths[file_key] = path
                     report_dates[file_key] = report_date
+                    self.source_files.append(path.name)
                     logger.info(f"  > Found '{file_key}': {path.name} ({report_date})")
                 else:
                     if file_key == "inbound" and source_name == "Flexport":

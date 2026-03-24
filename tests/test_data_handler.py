@@ -127,3 +127,144 @@ class TestPostToWebhookRetry:
              patch(*PATCHES["retries"]), \
              patch(*PATCHES["backoff"]):
             data_handler.post_to_webhook(dummy_records, dummy_metadata)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# TestLogRunHistory
+# ---------------------------------------------------------------------------
+
+from datetime import date as _date  # noqa: E402
+from unittest.mock import MagicMock
+
+
+def _make_inventory_record(report_date=_date(2026, 3, 20), units=10):
+    r = MagicMock()
+    r.report_date = report_date
+    r.units = units
+    # inventory records have no .revenue attribute
+    del r.revenue
+    return r
+
+
+def _make_sales_record(report_date=_date(2026, 3, 23), units=5, revenue=150.0):
+    r = MagicMock()
+    r.report_date = report_date
+    r.units = units
+    r.revenue = revenue
+    return r
+
+
+class TestLogRunHistory:
+    def _run(self, tmp_path, validated_data, pipeline, source_files=None):
+        with patch("src.data_handler.settings.OUTPUT_DIR", tmp_path):
+            data_handler.log_run_history(
+                validated_data, pipeline, source_files or []
+            )
+        return tmp_path / "run_history.csv", tmp_path / "run_history.json"
+
+    # -- CSV: structure --
+
+    def test_creates_csv_with_headers(self, tmp_path):
+        csv_path, _ = self._run(tmp_path, [_make_inventory_record()], "inventory")
+        assert csv_path.exists()
+        rows = csv_path.read_text().splitlines()
+        assert rows[0] == "timestamp,pipeline,report_date,total_records,total_units,total_revenue,source_files"
+        assert len(rows) == 2  # header + 1 data row
+
+    def test_appends_row_on_subsequent_call(self, tmp_path):
+        records = [_make_inventory_record()]
+        self._run(tmp_path, records, "inventory")
+        self._run(tmp_path, records, "inventory")
+        rows = (tmp_path / "run_history.csv").read_text().splitlines()
+        assert len(rows) == 3  # header + 2 data rows
+
+    def test_headers_written_only_once(self, tmp_path):
+        records = [_make_inventory_record()]
+        self._run(tmp_path, records, "inventory")
+        self._run(tmp_path, records, "inventory")
+        header_count = (tmp_path / "run_history.csv").read_text().count("timestamp,pipeline")
+        assert header_count == 1
+
+    # -- Revenue field --
+
+    def test_inventory_run_has_empty_revenue(self, tmp_path):
+        csv_path, _ = self._run(tmp_path, [_make_inventory_record()], "inventory")
+        import csv as _csv
+        with open(csv_path) as f:
+            row = list(_csv.DictReader(f))[0]
+        assert row["total_revenue"] == ""
+
+    def test_sales_run_has_revenue(self, tmp_path):
+        records = [_make_sales_record(revenue=100.0), _make_sales_record(revenue=50.55)]
+        csv_path, _ = self._run(tmp_path, records, "sales")
+        import csv as _csv
+        with open(csv_path) as f:
+            row = list(_csv.DictReader(f))[0]
+        assert float(row["total_revenue"]) == pytest.approx(150.55)
+
+    # -- Aggregation --
+
+    def test_total_units_and_records(self, tmp_path):
+        records = [_make_inventory_record(units=10), _make_inventory_record(units=20)]
+        csv_path, _ = self._run(tmp_path, records, "inventory")
+        import csv as _csv
+        with open(csv_path) as f:
+            row = list(_csv.DictReader(f))[0]
+        assert int(row["total_records"]) == 2
+        assert int(row["total_units"]) == 30
+
+    def test_report_date_is_max(self, tmp_path):
+        records = [
+            _make_inventory_record(report_date=_date(2026, 3, 18)),
+            _make_inventory_record(report_date=_date(2026, 3, 20)),
+        ]
+        csv_path, _ = self._run(tmp_path, records, "inventory")
+        import csv as _csv
+        with open(csv_path) as f:
+            row = list(_csv.DictReader(f))[0]
+        assert row["report_date"] == "2026-03-20"
+
+    def test_source_files_joined(self, tmp_path):
+        csv_path, _ = self._run(
+            tmp_path,
+            [_make_inventory_record()],
+            "inventory",
+            source_files=["FBA_report_2026-03-20.csv", "AWD_report_2026-03-20.csv"],
+        )
+        import csv as _csv
+        with open(csv_path) as f:
+            row = list(_csv.DictReader(f))[0]
+        assert row["source_files"] == "FBA_report_2026-03-20.csv, AWD_report_2026-03-20.csv"
+
+    # -- No-op on empty data --
+
+    def test_noop_on_empty_data(self, tmp_path):
+        csv_path, json_path = self._run(tmp_path, [], "inventory")
+        assert not csv_path.exists()
+        assert not json_path.exists()
+
+    # -- JSON: structure --
+
+    def test_creates_json_array(self, tmp_path):
+        _, json_path = self._run(tmp_path, [_make_inventory_record()], "inventory")
+        import json as _json
+        assert json_path.exists()
+        data = _json.loads(json_path.read_text())
+        assert isinstance(data, list)
+        assert len(data) == 1
+
+    def test_json_appends_to_existing(self, tmp_path):
+        records = [_make_inventory_record()]
+        self._run(tmp_path, records, "inventory")
+        self._run(tmp_path, records, "inventory")
+        import json as _json
+        data = _json.loads((tmp_path / "run_history.json").read_text())
+        assert len(data) == 2
+
+    def test_json_recovers_from_malformed_file(self, tmp_path):
+        json_path = tmp_path / "run_history.json"
+        json_path.write_text("not valid json")
+        _, json_path_result = self._run(tmp_path, [_make_inventory_record()], "inventory")
+        import json as _json
+        data = _json.loads(json_path_result.read_text())
+        assert len(data) == 1  # fresh start after malformed file

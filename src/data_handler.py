@@ -1,3 +1,4 @@
+import csv
 import pandas as pd
 import requests
 import json
@@ -108,3 +109,64 @@ def post_to_webhook(
 
         logger.info(f"✅ {report_type.capitalize()} data successfully posted.")
         return
+
+
+_HISTORY_FIELDNAMES = [
+    "timestamp", "pipeline", "report_date",
+    "total_records", "total_units", "total_revenue", "source_files",
+]
+
+
+def log_run_history(validated_data: list[Any], pipeline: str, source_files: list[str]):
+    """
+    Appends a metadata summary row to output/run_history.csv and output/run_history.json
+    after each pipeline run. Both files stay in sync:
+      - CSV  → Excel-compatible, one appended row per run
+      - JSON → programmatic lookups (idempotency checks, anomaly detection)
+    """
+    if not validated_data:
+        logger.warning("⚠️ No data to log to run history.")
+        return
+
+    settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    report_dates = [item.report_date for item in validated_data if hasattr(item, "report_date")]
+    report_date_str = max(report_dates).isoformat() if report_dates else ""
+
+    total_units = sum(getattr(item, "units", 0) for item in validated_data)
+    raw_revenue = sum(getattr(item, "revenue", 0.0) for item in validated_data)
+    total_revenue: float | str = round(raw_revenue, 2) if pipeline == "sales" else ""
+
+    row = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "pipeline": pipeline,
+        "report_date": report_date_str,
+        "total_records": len(validated_data),
+        "total_units": total_units,
+        "total_revenue": total_revenue,
+        "source_files": ", ".join(source_files),
+    }
+
+    # --- CSV (append) ---
+    csv_path = settings.OUTPUT_DIR / "run_history.csv"
+    write_header = not csv_path.exists()
+    with open(csv_path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=_HISTORY_FIELDNAMES)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+    # --- JSON (read-rewrite array) ---
+    json_path = settings.OUTPUT_DIR / "run_history.json"
+    history: list[dict] = []
+    if json_path.exists():
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("⚠️ run_history.json was malformed — starting fresh.")
+    history.append(row)
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2)
+
+    logger.info(f"📋 Run history logged → {csv_path.name} + {json_path.name}")
