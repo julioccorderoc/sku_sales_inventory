@@ -1,7 +1,7 @@
 # ROADMAP
 
 * **Version:** 0.1.0
-* **Last Updated:** 2026-03-03
+* **Last Updated:** 2026-03-24
 * **Primary Human Owner:** Julio Cordero
 
 ## Operating Rules for the Planner Agent
@@ -111,17 +111,46 @@
 
 ### EPIC-007 — Run History & Data Continuity
 
-* **Status:** Active (2026-03-03)
+* **Status:** Complete (2026-03-24)
 * **Dependencies:** EPIC-006 (combine script must be integrated before history layer is built on top of it)
 * **Business Objective:** Enable anomaly detection, idempotent runs, and trend reporting — all of which require a persistent record of prior pipeline runs to compare against. The current workflow saves output data to Excel manually; any solution must integrate with or extend that existing habit.
-* **Technical Boundary:** Produce a decision document at `docs/history_options.md` — no code. Evaluate the viable storage approaches given the current Excel-based workflow, and provide a clear recommendation. The document should cover at minimum:
-    1. **Extend the existing Excel file** — append each run as a new dated sheet or rows; pros: zero new tooling, familiar format; cons: file size growth, no programmatic querying.
-    2. **CSV append log** — a running `output/run_history.csv` that accumulates one row per pipeline run; pros: simple, git-diffable, readable in Excel; cons: no structured querying.
-    3. **SQLite database** — a local `output/history.db`; pros: queryable, compact, no server required; cons: requires a DB browser tool to inspect manually.
-    4. **JSON log file** — a `output/run_history.json` array; pros: human-readable, easy to parse in Python; cons: grows unbounded, no native Excel integration.
-    5. **Keep Excel + add a lightweight log** — combine the existing Excel habit for the output data with a small structured log (CSV or JSON) for run metadata only (timestamps, record counts, anomaly flags).
+* **Implementation:** Option 5 — Keep Excel + Add a Lightweight CSV + JSON Log. After every pipeline run, `data_handler.log_run_history()` appends one metadata row to `output/run_history.csv` (Excel-compatible) and updates `output/run_history.json` (programmatic lookups). Schema: `timestamp`, `pipeline`, `report_date`, `total_records`, `total_units`, `total_revenue`, `source_files`. No new dependencies.
 * **Verification Criteria (Definition of Done):**
-  * `docs/history_options.md` exists and covers all five approaches above.
-  * Each option includes a concrete assessment of: how the current Excel workflow is affected, what tooling (if any) is needed to read it, and whether it supports the three downstream use cases (anomaly detection, idempotency guard, trend comparison).
-  * The document ends with a clear recommendation and the reasoning behind it.
-  * The document is reviewed and a storage approach is chosen before any implementation begins.
+  * `docs/history_options.md` exists and covers all five approaches. ✅
+  * Each option assessed against Excel workflow impact, tooling, and all three downstream use cases. ✅
+  * Document ends with a clear recommendation. ✅
+  * Storage approach chosen and implemented: `output/run_history.csv` + `output/run_history.json` written by `data_handler.log_run_history()`. ✅
+  * 12 tests added to `tests/test_data_handler.py::TestLogRunHistory`, all passing. ✅
+
+---
+
+### EPIC-008 — Migrate Sales Parsers to Raw Order Reports
+
+* **Status:** In Progress (2026-03-24) — Steps 2 & 4 complete; Steps 1 & 3 scaffolded pending raw files
+* **Dependencies:** EPIC-007 (run history log must exist so each migration step can be validated by comparing aggregated output against the previous baseline)
+* **Business Objective:** Replace pre-aggregated platform summary CSVs with raw order-level exports so the pipeline controls its own aggregation logic. This yields consistent calculations across channels, enables deduplication by order ID, supports flexible date-range re-aggregation, and provides the order-level granularity needed for meaningful anomaly detection.
+* **Technical Boundary:** Migrate one sales channel at a time. Each step replaces the existing parser for that channel with a new one that reads raw order rows and aggregates them to the same `[Channel, SKU, Units, Revenue]` output schema. The pipeline output format and all downstream consumers (webhook, n8n) must remain unchanged throughout. This epic is intentionally phased — each step is independently shippable and must be validated before the next begins.
+* **Implementation Steps:**
+    1. **Step 1 — Shopify** *(pending — raw file not yet available)*
+        * Stub in `src/parsers.py`: `parse_shopify_orders_report()` — fully documented.
+        * See `docs/epic008_raw_orders.md` for download instructions, expected columns, and implementation checklist.
+    2. **Step 2 — Amazon** ✅ **Complete (2026-03-24)**
+        * `Amazon_orders_*.txt` confirmed as tab-separated, row-per-order-line-item (36 cols).
+        * Filters: `sales-channel == "Amazon.com"` (excludes MCF) + `order-status == "Shipped"` (excludes Cancelled/Pending).
+        * `find_latest_report` extended to accept `extensions` tuple — Amazon entry uses `(".txt", ".csv")` so `.txt` downloads are found without format conversion.
+        * `parse_amazon_sales_report` remains in codebase (kept for reference); no longer in registry.
+        * PARSER_REGISTRY updated; 11 tests added and passing.
+    3. **Step 3 — Walmart** *(pending — raw file not yet available; confirm export column names before implementing)*
+        * Stub in `src/parsers.py`: `parse_walmart_orders_report()` — fully documented.
+        * See `docs/epic008_raw_orders.md` for download instructions, expected columns, and implementation checklist.
+    4. **Step 4 — TikTok Shop** ✅ **Complete (2026-03-24)**
+        * `TikTok_orders_*.csv` confirmed as row-per-order (48 cols).
+        * Added `parse_tiktok_shop_orders_report()` — no fulfillment filter, revenue = `SKU Subtotal After Discount`.
+        * `parse_tiktok_sales_report` marked LEGACY (kept for reference, no longer in registry).
+        * PARSER_REGISTRY updated; 11 tests added and passing.
+* **Verification Criteria (Definition of Done):**
+  * All four sales channels read raw order-level exports.
+  * For each channel, a validation run confirmed that aggregated output on the same input date matched the pre-migration summary-based output within a documented tolerance.
+  * No changes to the output schema (`SalesRecord` Pydantic model), column names, or webhook payload.
+  * Each channel has an updated fixture CSV reflecting the raw order format and a passing parser test.
+  * `CLAUDE.md` input file naming table is updated with the new raw-order filename prefixes.

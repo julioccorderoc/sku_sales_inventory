@@ -59,45 +59,48 @@ def load_csv(file_path: Path, skiprows: int = 0, **kwargs) -> pd.DataFrame | Non
         return None
 
 
-def find_latest_report(directory: Path, prefix: str) -> tuple[Path, date] | None:
+def find_latest_report(
+    directory: Path, prefix: str, extensions: tuple = (".csv",)
+) -> tuple[Path, date] | None:
     """
     Finds the most recent report file for a given prefix in a directory.
-    Target format: prefix + "YYYY-MM-DD.csv" (e.g., "AWD_Report_2025-12-15.csv")
+    Target format: prefix + "YYYY-MM-DD" + extension (e.g., "AWD_Report_2025-12-15.csv")
+
+    The `extensions` parameter controls which file types are accepted (default: .csv only).
+    Pass extensions=(".txt", ".csv") for channels like Amazon Orders that download as .txt.
+    When multiple extensions are provided, all are searched and the newest date wins.
     """
-    # 1. Optimistic Check: Try to find today's file immediately (O(1) operation)
     today = date.today()
     today_str = today.isoformat()  # Returns 'YYYY-MM-DD'
-    today_file = directory / f"{prefix}{today_str}.csv"
 
-    if today_file.exists():
-        return (today_file, today)
+    # 1. Optimistic Check: Try to find today's file for each extension (O(1) per ext)
+    for ext in extensions:
+        today_file = directory / f"{prefix}{today_str}{ext}"
+        if today_file.exists():
+            return (today_file, today)
 
-    # 2. Scanning: If today's file is missing, scan the directory
-    # We use re.escape(prefix) to prevent regex injection if prefix contains special chars
-    pattern = re.compile(rf"^{re.escape(prefix)}(\d{{4}}-\d{{2}}-\d{{2}})\.csv$")
+    # 2. Scanning: scan the directory for any matching prefix + date + extension
     found_files = []
-
-    for f in directory.iterdir():
-        # Skip directories, looking only at files
-        if not f.is_file():
-            continue
-
-        match = pattern.match(f.name)
-        if match:
-            date_str = match.group(1)
-            try:
-                # ISO formats parse reliably without complex format strings
-                file_date = date.fromisoformat(date_str)
-                found_files.append((f, file_date))
-            except ValueError:
-                # Malformed date strings (e.g. 2025-13-99) are ignored
+    for ext in extensions:
+        pattern = re.compile(
+            rf"^{re.escape(prefix)}(\d{{4}}-\d{{2}}-\d{{2}}){re.escape(ext)}$"
+        )
+        for f in directory.iterdir():
+            if not f.is_file():
                 continue
+            match = pattern.match(f.name)
+            if match:
+                date_str = match.group(1)
+                try:
+                    file_date = date.fromisoformat(date_str)
+                    found_files.append((f, file_date))
+                except ValueError:
+                    continue
 
     if not found_files:
         return None
 
     # 3. Sort by date descending (newest first) and return the winner
-    # Logic: Tuple comparison uses the second element (date)
     found_files.sort(key=lambda x: x[1], reverse=True)
     return found_files[0]
 

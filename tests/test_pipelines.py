@@ -87,10 +87,13 @@ class TestInventoryPipelineTransform:
         assert fba_9001.inbound == 0
         assert fba_9001.units == 0
 
-    def test_negative_inventory_fails_validation(self, inventory_df_negative):
-        """A row with inventory=-1 must cause Pydantic validation to fail → None."""
+    def test_negative_inventory_clipped_to_zero(self, inventory_df_negative):
+        """A row with inventory=-1 must be clipped to 0 (not rejected) — see commit 7233f22."""
         result = InventoryPipeline().transform(inventory_df_negative, [])
-        assert result is None
+        assert result is not None
+        fba_1001 = next((r for r in result if r.channel == "FBA" and r.sku == "1001"), None)
+        assert fba_1001 is not None
+        assert fba_1001.inventory == 0
 
     def test_output_count(self, inventory_df):
         """Total rows = len(SKU_ORDER) × len(CHANNEL_ORDER) (full list forced)."""

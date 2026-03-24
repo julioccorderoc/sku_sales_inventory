@@ -1,0 +1,6 @@
+Order ID,Order Status,SKU ID,Seller SKU,Quantity,SKU Subtotal After Discount,Fulfillment Type,Warehouse Name
+ORD001,Completed,1729499998780101089,5001,2,56.34,Fulfillment by TikTok Shop,FC07_ONT3
+ORD002,Cancelled,1729499998780101089,5001,1,28.17,Fulfillment by TikTok Shop,FC07_ONT3
+ORD003,Completed,1729499998780101089,5001,3,84.51,Seller Shipping,FC07_ONT3
+ORD004,Completed,1729500444198670817,bundle_5001,1,30.00,Fulfillment by TikTok Shop,FC07_ONT3
+ORD005,Completed,1729500444198670817,bundle_5001,2,60.00,Seller Shipping,FC07_ONT3

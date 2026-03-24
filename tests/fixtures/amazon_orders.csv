@@ -1,0 +1,7 @@
+amazon-order-id,sales-channel,order-status,sku,quantity,item-price
+ORD001,Amazon.com,Shipped,1001,1,24.99
+ORD002,Amazon.com,Shipped,3001s,2,65.90
+ORD003,Amazon.com,Cancelled,1001,1,24.99
+ORD004,Amazon.com,Pending,5001s,1,29.99
+ORD005,Non-Amazon US,Shipped,1001,1,24.99
+ORD_UNK,Amazon.com,Shipped,UNKNOWN_MSKU,1,10.00

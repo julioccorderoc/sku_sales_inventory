@@ -79,8 +79,20 @@ def amazon_sales_fixture():
 
 
 @pytest.fixture
+def amazon_orders_fixture():
+    """Raw Amazon_orders_*.csv fixture for parse_amazon_orders_report (EPIC-008 Step 2)."""
+    return {"primary": FIXTURES_DIR / "amazon_orders.csv"}
+
+
+@pytest.fixture
 def tiktok_orders_fixture():
     return {"primary": FIXTURES_DIR / "tiktok_orders.csv"}
+
+
+@pytest.fixture
+def tiktok_shop_orders_fixture():
+    """Raw TikTok_orders_*.csv fixture for parse_tiktok_shop_orders_report (EPIC-008 Step 4)."""
+    return {"primary": FIXTURES_DIR / "tiktok_shop_orders.csv"}
 
 
 @pytest.fixture

@@ -24,8 +24,10 @@ from src.parsers import (
     parse_flexport_reports,
     parse_walmart_sales_report,
     parse_amazon_sales_report,
+    parse_amazon_orders_report,
     parse_tiktok_orders_report,
     parse_tiktok_sales_report,
+    parse_tiktok_shop_orders_report,
     parse_shopify_sales_report,
 )
 
@@ -352,6 +354,81 @@ class TestParseAmazonSalesReport:
         assert result.df is None
 
 
+class TestParseAmazonOrdersReport:
+    """
+    Tests for parse_amazon_orders_report — EPIC-008 Step 2.
+
+    Fixture: tests/fixtures/amazon_orders.csv
+      ORD001  Shipped    Amazon.com      sku=1001      qty=1  rev=24.99   (keep)
+      ORD002  Shipped    Amazon.com      sku=3001s     qty=2  rev=65.90   (keep; trailing-s map)
+      ORD003  Cancelled  Amazon.com      sku=1001      qty=1  rev=24.99   (excluded: Cancelled)
+      ORD004  Pending    Amazon.com      sku=5001s     qty=1  rev=29.99   (excluded: Pending)
+      ORD005  Shipped    Non-Amazon US   sku=1001      qty=1  rev=24.99   (excluded: MCF)
+      ORD_UNK Shipped    Amazon.com      sku=UNKNOWN   qty=1  rev=10.00   (excluded: unmapped)
+
+    Expected output:
+      SKU 1001 : Units=1, Revenue=24.99
+      SKU 3001 : Units=2, Revenue=65.90
+      bundle_stats : {Units: 0, Revenue: 0}
+    """
+
+    def test_happy_path_returns_parse_result(self, amazon_orders_fixture):
+        result = parse_amazon_orders_report(amazon_orders_fixture)
+        assert result.df is not None
+
+    def test_output_columns(self, amazon_orders_fixture):
+        result = parse_amazon_orders_report(amazon_orders_fixture)
+        assert {"SKU", "Units", "Revenue"}.issubset(set(result.df.columns))
+
+    def test_raw_count_includes_all_rows(self, amazon_orders_fixture):
+        """raw_count is total rows before any filtering (6 in fixture)."""
+        result = parse_amazon_orders_report(amazon_orders_fixture)
+        assert result.raw_count == 6
+
+    def test_cancelled_orders_excluded(self, amazon_orders_fixture):
+        """ORD003 is Cancelled — SKU 1001 should only get 1 unit (ORD001), not 2."""
+        result = parse_amazon_orders_report(amazon_orders_fixture)
+        row = result.df[result.df["SKU"] == "1001"].iloc[0]
+        assert row["Units"] == 1
+
+    def test_pending_orders_excluded(self, amazon_orders_fixture):
+        """ORD004 is Pending (5001s) — must not appear in output."""
+        result = parse_amazon_orders_report(amazon_orders_fixture)
+        assert "5001" not in result.df["SKU"].values
+
+    def test_mcf_orders_excluded(self, amazon_orders_fixture):
+        """ORD005 is Non-Amazon US (MCF) — must not contribute to SKU 1001."""
+        result = parse_amazon_orders_report(amazon_orders_fixture)
+        row = result.df[result.df["SKU"] == "1001"].iloc[0]
+        assert row["Units"] == 1  # ORD001 only; ORD005 (MCF) is excluded
+
+    def test_trailing_s_msku_maps_correctly(self, amazon_orders_fixture):
+        """ORD002 sku='3001s' → AMAZON_SKU_MAP → internal SKU '3001'."""
+        result = parse_amazon_orders_report(amazon_orders_fixture)
+        assert "3001" in result.df["SKU"].values
+
+    def test_unknown_msku_excluded(self, amazon_orders_fixture):
+        result = parse_amazon_orders_report(amazon_orders_fixture)
+        assert "UNKNOWN_MSKU" not in result.df["SKU"].values
+
+    def test_revenue_correct(self, amazon_orders_fixture):
+        result = parse_amazon_orders_report(amazon_orders_fixture)
+        row_1001 = result.df[result.df["SKU"] == "1001"].iloc[0]
+        assert abs(row_1001["Revenue"] - 24.99) < 0.01
+        row_3001 = result.df[result.df["SKU"] == "3001"].iloc[0]
+        assert abs(row_3001["Revenue"] - 65.90) < 0.01
+
+    def test_no_bundles_in_fixture(self, amazon_orders_fixture):
+        """Fixture has no bundle MSKUs — bundle_stats should be zero."""
+        result = parse_amazon_orders_report(amazon_orders_fixture)
+        assert result.bundle_stats["Units"] == 0
+        assert result.bundle_stats["Revenue"] == 0
+
+    def test_missing_file_returns_none_df(self, fixtures_dir):
+        result = parse_amazon_orders_report({"primary": fixtures_dir / "nonexistent.csv"})
+        assert result.df is None
+
+
 class TestParseTikTokOrdersReport:
     def test_happy_path_returns_parse_result(self, tiktok_orders_fixture):
         result = parse_tiktok_orders_report(tiktok_orders_fixture)
@@ -485,4 +562,83 @@ class TestParseShopifySalesReport:
 
     def test_missing_file_returns_none_df(self, fixtures_dir):
         result = parse_shopify_sales_report({"primary": fixtures_dir / "nonexistent.csv"})
+        assert result.df is None
+
+
+class TestParseTikTokShopOrdersReport:
+    """
+    Tests for parse_tiktok_shop_orders_report — EPIC-008 Step 4.
+
+    Fixture: tests/fixtures/tiktok_shop_orders.csv
+      ORD001  Completed  SKU 1729499998780101089 → ["1001"]  qty=2  rev=56.34  FBT
+      ORD002  Cancelled  same SKU                 qty=1  rev=28.17  FBT        (excluded)
+      ORD003  Completed  same SKU                 qty=3  rev=84.51  Seller Shipping
+      ORD004  Completed  SKU 1729500444198670817 → ["5001","5001"]  qty=1  rev=30.00  FBT
+      ORD005  Completed  same bundle SKU          qty=2  rev=60.00  Seller Shipping
+
+    Expected after processing:
+      SKU 1001 : Units=5, Revenue=140.85
+      SKU 5001 : Units=6  (bundle 2x: (1+2)×2), Revenue=90.00
+      bundle_stats : {Units: 3, Revenue: 90.0}
+    """
+
+    def test_happy_path_returns_parse_result(self, tiktok_shop_orders_fixture):
+        result = parse_tiktok_shop_orders_report(tiktok_shop_orders_fixture)
+        assert result.df is not None
+
+    def test_output_columns(self, tiktok_shop_orders_fixture):
+        result = parse_tiktok_shop_orders_report(tiktok_shop_orders_fixture)
+        assert {"SKU", "Units", "Revenue"}.issubset(set(result.df.columns))
+
+    def test_raw_count_includes_all_rows(self, tiktok_shop_orders_fixture):
+        """raw_count reflects total rows before any filtering."""
+        result = parse_tiktok_shop_orders_report(tiktok_shop_orders_fixture)
+        assert result.raw_count == 5
+
+    def test_cancelled_orders_excluded(self, tiktok_shop_orders_fixture):
+        """ORD002 (Cancelled) must not contribute — SKU 1001 Units should be 5, not 6."""
+        result = parse_tiktok_shop_orders_report(tiktok_shop_orders_fixture)
+        row = result.df[result.df["SKU"] == "1001"].iloc[0]
+        assert row["Units"] == 5
+
+    def test_seller_shipping_orders_included(self, tiktok_shop_orders_fixture):
+        """ORD003 (Seller Shipping) must count — distinguishes this from parse_tiktok_orders_report."""
+        result = parse_tiktok_shop_orders_report(tiktok_shop_orders_fixture)
+        row = result.df[result.df["SKU"] == "1001"].iloc[0]
+        # FBT only (ORD001) would give 2; adding Seller Shipping (ORD003, qty=3) gives 5
+        assert row["Units"] == 5
+
+    def test_fbt_orders_included(self, tiktok_shop_orders_fixture):
+        """ORD001 (FBT) also counts — not filtered out."""
+        result = parse_tiktok_shop_orders_report(tiktok_shop_orders_fixture)
+        row = result.df[result.df["SKU"] == "1001"].iloc[0]
+        assert row["Units"] >= 2  # ORD001 alone contributes 2
+
+    def test_revenue_uses_subtotal_after_discount(self, tiktok_shop_orders_fixture):
+        """Revenue = SKU Subtotal After Discount (56.34 + 84.51 = 140.85 for SKU 1001)."""
+        result = parse_tiktok_shop_orders_report(tiktok_shop_orders_fixture)
+        row = result.df[result.df["SKU"] == "1001"].iloc[0]
+        assert abs(row["Revenue"] - 140.85) < 0.01
+
+    def test_bundle_expanded(self, tiktok_shop_orders_fixture):
+        """ORD004+ORD005 map to ["5001","5001"]: (1+2) qty × 2 bundle entries = 6 units."""
+        result = parse_tiktok_shop_orders_report(tiktok_shop_orders_fixture)
+        assert "5001" in result.df["SKU"].values
+        row = result.df[result.df["SKU"] == "5001"].iloc[0]
+        assert row["Units"] == 6
+
+    def test_bundle_revenue(self, tiktok_shop_orders_fixture):
+        """Bundle revenue: (30+60)=90 total split evenly, then summed → 90.00 for SKU 5001."""
+        result = parse_tiktok_shop_orders_report(tiktok_shop_orders_fixture)
+        row = result.df[result.df["SKU"] == "5001"].iloc[0]
+        assert abs(row["Revenue"] - 90.0) < 0.01
+
+    def test_bundle_stats_include_seller_shipping(self, tiktok_shop_orders_fixture):
+        """ORD004 (FBT bundle) + ORD005 (Seller Shipping bundle) → bundle_stats Units == 3."""
+        result = parse_tiktok_shop_orders_report(tiktok_shop_orders_fixture)
+        assert result.bundle_stats["Units"] == 3.0
+        assert abs(result.bundle_stats["Revenue"] - 90.0) < 0.01
+
+    def test_missing_file_returns_none_df(self, fixtures_dir):
+        result = parse_tiktok_shop_orders_report({"primary": fixtures_dir / "nonexistent.csv"})
         assert result.df is None

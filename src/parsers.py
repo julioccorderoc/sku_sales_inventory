@@ -96,6 +96,10 @@ def parse_amazon_sales_report(file_paths: dict) -> ParseResult:
 
 def parse_tiktok_sales_report(file_paths: dict) -> ParseResult:
     """
+    LEGACY — superseded by parse_tiktok_shop_orders_report (EPIC-008).
+    No longer registered in SalesPipeline.PARSER_REGISTRY.
+    Kept for reference; remove after one reporting cycle confirms parity.
+
     Robust Parsing for TikTok:
     1. Scan first few lines to find the header row containing "SKU ID".
     2. Determine delimiter (comma or semicolon) from that header.
@@ -172,6 +176,250 @@ def parse_tiktok_sales_report(file_paths: dict) -> ParseResult:
     df_norm = pd.DataFrame(expanded_rows)
     grouped = df_norm.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
     return ParseResult(df=grouped, raw_count=raw_count, bundle_stats={"Units": bundle_units, "Revenue": bundle_rev})
+
+
+def parse_tiktok_shop_orders_report(file_paths: dict) -> ParseResult:
+    """
+    Reads raw TikTok_orders_*.csv and aggregates for the TikTok Shop SALES channel.
+
+    Replaces parse_tiktok_sales_report (EPIC-008 Step 4).
+
+    Key differences from parse_tiktok_orders_report (used for FBT inventory):
+      - No fulfillment-type filter: counts Seller Shipping AND FBT orders
+      - Revenue = 'SKU Subtotal After Discount' (per-SKU net, excludes shipping/taxes)
+
+    Input file  : TikTok_orders_YYYY-MM-DD.csv  (settings.TIKTOK_ORDERS_PREFIX)
+    SKU mapping : SKU ID → settings.TIKTOK_ID_MAP (same bundle expansion logic)
+    """
+    path = file_paths.get("primary")
+    if not path or not path.exists():
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
+
+    df = load_csv(path)
+    if df is None:
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
+
+    raw_count = len(df)
+
+    expected_cols = ["Order Status", "SKU ID", "Quantity", "SKU Subtotal After Discount"]
+    present_cols = [c for c in expected_cols if c in df.columns]
+    if len(present_cols) < len(expected_cols):
+        missing = [c for c in expected_cols if c not in df.columns]
+        logger.error(f"❌ TikTok Shop orders: missing columns {missing}. Found: {df.columns.tolist()}")
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
+
+    df = df[expected_cols].copy()
+    df["Order Status"] = df["Order Status"].astype(str).str.strip()
+
+    # Exclude cancelled orders — keep ALL fulfillment types (FBT + Seller Shipping)
+    df = df[~df["Order Status"].str.lower().str.contains("cancel", na=False)].copy()
+    logger.info(f"TikTok Shop Orders: {len(df)} non-cancelled rows (of {raw_count} total)")
+
+    if df.empty:
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
+
+    df["Quantity"] = pd.to_numeric(df["Quantity"], errors="coerce").fillna(0)
+    df["SKU Subtotal After Discount"] = df["SKU Subtotal After Discount"].apply(clean_money)
+    df["SKU ID"] = df["SKU ID"].astype(str).str.strip()
+
+    grouped_src = df.groupby("SKU ID")[["Quantity", "SKU Subtotal After Discount"]].sum().reset_index()
+
+    expanded_rows = []
+    bundle_units = 0.0
+    bundle_rev = 0.0
+
+    for _, row in grouped_src.iterrows():
+        new_rows, is_bundle = _process_bundled_row(
+            row, settings.TIKTOK_ID_MAP, "SKU ID", "Quantity",
+            "SKU Subtotal After Discount", "TikTok Shop Orders"
+        )
+        expanded_rows.extend(new_rows)
+        if is_bundle:
+            bundle_units += float(row.get("Quantity") or 0)
+            bundle_rev += float(row.get("SKU Subtotal After Discount") or 0)
+
+    if not expanded_rows:
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
+
+    df_norm = pd.DataFrame(expanded_rows)
+    grouped = df_norm.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
+    return ParseResult(df=grouped, raw_count=raw_count,
+                       bundle_stats={"Units": bundle_units, "Revenue": bundle_rev})
+
+
+# ---------------------------------------------------------------------------
+# EPIC-008 Stubs — pending raw order file availability
+# Each stub documents exactly what to implement and how to wire it in.
+# ---------------------------------------------------------------------------
+
+def parse_shopify_orders_report(file_paths: dict) -> ParseResult:  # noqa: ARG001
+    """
+    [NOT YET IMPLEMENTED — EPIC-008 Step 1]
+
+    Replaces  : parse_shopify_sales_report + Shopify_sales_*.csv
+    Input file: Shopify_orders_YYYY-MM-DD.csv  (settings.SHOPIFY_ORDERS_PREFIX)
+
+    How to download:
+      Shopify Admin → Orders → Export → "All orders" as plain CSV.
+      Rename to Shopify_orders_YYYY-MM-DD.csv using the export date.
+
+    Key columns in the export:
+      Name             — order number (e.g. "#1001")
+      Financial Status — filter: keep "paid" rows only
+      Lineitem sku     — internal SKU or bundle name → apply SHOPIFY_SKU_MAP
+      Lineitem quantity — units
+      Lineitem price   — unit price; Revenue = Lineitem price × Lineitem quantity
+      Source name      — maps to channel (same logic as parse_shopify_sales_report:
+                          "tiktok"→"TikTok Shopify", "Marketplace Connect"→"Target", etc.)
+
+    Implementation steps:
+      1. Filter: Financial Status == "paid"
+      2. Compute Revenue = Lineitem price × Lineitem quantity per row
+      3. Apply channel mapping (same as current parse_shopify_sales_report)
+      4. For each row: _process_bundled_row(row, SHOPIFY_SKU_MAP, "Lineitem sku", ...)
+      5. Group by SKU + Channel, sum Units and Revenue
+      6. Track per-channel bundle_stats (same dict-of-dicts as current parser)
+
+    To wire in, replace the PARSER_REGISTRY entry in SalesPipeline:
+      {"channel": "Mixed", "parser": parsers.parse_shopify_orders_report,
+       "files": {"primary": settings.SHOPIFY_ORDERS_PREFIX}}
+
+    Also: add tests/fixtures/shopify_orders.csv + TestParseShopifyOrdersReport.
+    See docs/epic008_raw_orders.md for a full implementation checklist.
+    """
+    logger.error("❌ parse_shopify_orders_report is not yet implemented (EPIC-008 Step 1).")
+    return ParseResult(df=None, raw_count=0, bundle_stats={})
+
+
+def parse_amazon_orders_report(file_paths: dict) -> ParseResult:
+    """
+    Reads raw Amazon_orders_*.{txt,csv} and aggregates for the Amazon SALES channel.
+
+    Replaces parse_amazon_sales_report (EPIC-008 Step 2).
+
+    Download instructions:
+      Amazon Seller Central → Orders → Order Reports → "Request Report".
+      Select the desired date range and "All statuses". The downloaded file arrives
+      with a random numeric name and a .txt extension (tab-separated).
+      Rename it to Amazon_orders_YYYY-MM-DD.txt and drop it in input/.
+
+    Filters applied:
+      - sales-channel == "Amazon.com"  (excludes MCF / Non-Amazon fulfillment orders)
+      - order-status == "Shipped"      (excludes Cancelled and Pending)
+
+    Note on Pending: Pending orders (not yet fulfilled) are intentionally excluded.
+    They may still ship or cancel; counting them early would inflate figures inconsistently
+    with the "shipped = sold" convention used across all other channels.
+
+    Key columns:
+      sales-channel  — filter: keep "Amazon.com" only
+      order-status   — filter: keep "Shipped" only
+      sku            — MSKU → apply AMAZON_SKU_MAP directly (map has trailing-s variants)
+      quantity       — units per line item (already an integer count)
+      item-price     — total revenue for the line (unit price × quantity, pre-multiplied)
+    """
+    path = file_paths.get("primary")
+    if not path or not path.exists():
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
+
+    # Amazon exports as tab-separated .txt; fixture/fallback files may be .csv
+    df = load_csv(path, sep="\t") if path.suffix.lower() == ".txt" else load_csv(path)
+
+    if df is None:
+        return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
+
+    raw_count = len(df)
+
+    required_cols = ["sales-channel", "order-status", "sku", "quantity", "item-price"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        logger.error(
+            f"❌ Amazon Orders: missing columns {missing}. Found: {df.columns.tolist()}"
+        )
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
+
+    # Filter: Amazon.com marketplace only (exclude MCF / Non-Amazon channels)
+    df = df[df["sales-channel"] == "Amazon.com"].copy()
+    # Filter: Shipped only (Pending and Cancelled excluded)
+    df = df[df["order-status"] == "Shipped"].copy()
+
+    logger.info(f"Amazon Orders: {len(df)} Shipped Amazon.com rows (of {raw_count} total)")
+
+    if df.empty:
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
+
+    df["quantity"] = pd.to_numeric(df["quantity"], errors="coerce").fillna(0)
+    df["item-price"] = df["item-price"].apply(clean_money)
+    df["sku"] = df["sku"].astype(str).str.strip()
+
+    # Group by MSKU before mapping — many rows per SKU across multiple orders
+    grouped_src = df.groupby("sku")[["quantity", "item-price"]].sum().reset_index()
+
+    expanded_rows = []
+    bundle_units = 0.0
+    bundle_rev = 0.0
+
+    for _, row in grouped_src.iterrows():
+        new_rows, is_bundle = _process_bundled_row(
+            row, settings.AMAZON_SKU_MAP, "sku", "quantity", "item-price", "Amazon Orders"
+        )
+        expanded_rows.extend(new_rows)
+        if is_bundle:
+            bundle_units += float(row["quantity"] or 0)
+            bundle_rev += float(row["item-price"] or 0)
+
+    if not expanded_rows:
+        return ParseResult(df=None, raw_count=raw_count, bundle_stats={"Units": 0, "Revenue": 0})
+
+    df_norm = pd.DataFrame(expanded_rows)
+    grouped = df_norm.groupby("SKU")[["Units", "Revenue"]].sum().reset_index()
+
+    logger.info(f"✅ Parsed {path.name} successfully.")
+    return ParseResult(
+        df=grouped,
+        raw_count=raw_count,
+        bundle_stats={"Units": bundle_units, "Revenue": bundle_rev},
+    )
+
+
+def parse_walmart_orders_report(file_paths: dict) -> ParseResult:  # noqa: ARG001
+    """
+    [NOT YET IMPLEMENTED — EPIC-008 Step 3]
+
+    Replaces  : parse_walmart_sales_report + Walmart_sales_*.csv
+    Input file: Walmart_orders_YYYY-MM-DD.csv  (settings.WALMART_ORDERS_PREFIX)
+
+    How to download:
+      Walmart Seller Center → Orders → Manage Orders → Export → CSV.
+      IMPORTANT: Confirm column names before implementing — Walmart's export format
+      varies by account type. Download a sample and verify column names first.
+      Rename to Walmart_orders_YYYY-MM-DD.csv using the export date.
+
+    Expected columns (verify against actual export before implementing):
+      Purchase Order ID — order ID
+      Order Date        — order date
+      SKU               — seller SKU → direct match to internal SKU (no mapping needed)
+      Quantity          — units
+      Unit Price        — unit price; Revenue = Quantity × Unit Price
+      Order Line Status — filter: keep "Acknowledged", "Shipped", "Delivered"
+                         (exclude "Cancelled", "Refunded")
+
+    Implementation steps:
+      1. Filter on Order Line Status (exclude cancelled/refunded)
+      2. Compute Revenue = Quantity × Unit Price
+      3. Group by SKU, sum Units and Revenue
+      4. No bundle expansion needed (Walmart SKUs are 1:1 with internal SKUs)
+      5. Return bundle_stats = {"Units": 0, "Revenue": 0}
+
+    To wire in, replace the PARSER_REGISTRY entry in SalesPipeline:
+      {"channel": "Walmart", "parser": parsers.parse_walmart_orders_report,
+       "files": {"primary": settings.WALMART_ORDERS_PREFIX}}
+
+    Also: add tests/fixtures/walmart_orders.csv + TestParseWalmartOrdersReport.
+    See docs/epic008_raw_orders.md for a full implementation checklist.
+    """
+    logger.error("❌ parse_walmart_orders_report is not yet implemented (EPIC-008 Step 3).")
+    return ParseResult(df=None, raw_count=0, bundle_stats={"Units": 0, "Revenue": 0})
 
 
 def parse_shopify_sales_report(file_paths: dict) -> ParseResult:

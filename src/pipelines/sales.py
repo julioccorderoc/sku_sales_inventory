@@ -28,13 +28,14 @@ class SalesPipeline(DataPipeline):
             },
             {
                 "channel": "Amazon",
-                "parser": parsers.parse_amazon_sales_report,
-                "files": {"primary": settings.AMAZON_SALES_PREFIX},
+                "parser": parsers.parse_amazon_orders_report,      # EPIC-008 Step 2
+                "files": {"primary": settings.AMAZON_ORDERS_PREFIX},
+                "extensions": (".txt", ".csv"),                    # Amazon downloads as .txt
             },
             {
                 "channel": "TikTok Shop",
-                "parser": parsers.parse_tiktok_sales_report,
-                "files": {"primary": settings.TIKTOK_SALES_PREFIX},
+                "parser": parsers.parse_tiktok_shop_orders_report,  # EPIC-008 Step 4
+                "files": {"primary": settings.TIKTOK_ORDERS_PREFIX},
             },
             {
                 "channel": "Mixed",
@@ -55,7 +56,9 @@ class SalesPipeline(DataPipeline):
             logger.info(f"\n-- Processing Source: {source_name} --")
 
             found_info = utils.find_latest_report(
-                settings.INPUT_DIR, registry_entry["files"]["primary"]
+                settings.INPUT_DIR,
+                registry_entry["files"]["primary"],
+                registry_entry.get("extensions", (".csv",)),
             )
             if not found_info:
                 logger.warning(
@@ -64,6 +67,7 @@ class SalesPipeline(DataPipeline):
                 continue
 
             path, file_date = found_info
+            self.source_files.append(path.name)
             logger.info(f"  > Found: {path.name} (File Date: {file_date})")
 
             # Parse — returns ParseResult

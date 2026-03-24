@@ -38,10 +38,18 @@ WALMART_SALES_FILENAME_PREFIX = os.getenv(
 COMBINED_FILENAME_BASE = os.getenv("COMBINED_FILENAME", "combined_inventory")
 
 WALMART_SALES_PREFIX = "Walmart_sales_"
-TIKTOK_SALES_PREFIX = "TikTok_sales_"
+TIKTOK_SALES_PREFIX = "TikTok_sales_"   # Legacy — superseded by TIKTOK_ORDERS_PREFIX (EPIC-008)
 TIKTOK_ORDERS_PREFIX = "TikTok_orders_"
 AMAZON_SALES_PREFIX = "Amazon_sales_"
 SHOPIFY_SALES_PREFIX = "Shopify_sales_"
+
+# --- EPIC-008: Raw Order File Prefixes ---
+# Wire each constant into SalesPipeline.PARSER_REGISTRY as channels are migrated.
+# See docs/epic008_raw_orders.md for download instructions and implementation checklists.
+SHOPIFY_ORDERS_PREFIX = "Shopify_orders_"   # Step 1 — not yet active
+AMAZON_ORDERS_PREFIX  = "Amazon_orders_"    # Step 2 — not yet active
+WALMART_ORDERS_PREFIX = "Walmart_orders_"   # Step 3 — not yet active
+# TikTok Shop already uses TIKTOK_ORDERS_PREFIX above   — Step 4 complete (EPIC-008)
 
 # --- Webhook ---
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")

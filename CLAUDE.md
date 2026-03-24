@@ -170,20 +170,21 @@ logger.info("📊 Stats: {raw_count} rows → {len(df)} SKU-channel pairs")
 
 Files must follow these prefixes for auto-detection (latest by date in filename):
 
-| Source | Prefix Pattern |
-|--------|---------------|
-| FBA Inventory | `FBA_report_YYYY-MM-DD.csv` |
-| AWD Inventory | `AWD_Report_YYYY-MM-DD.csv` |
-| WFS Inventory | `Walmart_inventory_YYYY-MM-DD.csv` |
-| Walmart Sales | `Walmart_sales_YYYY-MM-DD.csv` |
-| FBT Inventory | `FBT_inventory_YYYY-MM-DD.csv` |
-| TikTok Orders | `TikTok_orders_YYYY-MM-DD.csv` |
-| TikTok Sales | `TikTok_sales_YYYY-MM-DD.csv` |
-| Amazon Sales | `Amazon_sales_YYYY-MM-DD.csv` |
-| Shopify Sales | `Shopify_sales_YYYY-MM-DD.csv` |
-| Flexport Levels | `Flexport_levels_YYYY-MM-DD.csv` |
-| Flexport Orders | `Flexport_orders_YYYY-MM-DD.csv` |
-| Flexport Inbound | `Flexport_inbound_YYYY-MM-DD.csv` |
+| Source | Prefix Pattern | Notes |
+|--------|---------------|-------|
+| FBA Inventory | `FBA_report_YYYY-MM-DD.csv` | |
+| AWD Inventory | `AWD_Report_YYYY-MM-DD.csv` | |
+| WFS Inventory | `Walmart_inventory_YYYY-MM-DD.csv` | |
+| Walmart Sales | `Walmart_sales_YYYY-MM-DD.csv` | |
+| FBT Inventory | `FBT_inventory_YYYY-MM-DD.csv` | |
+| TikTok Orders | `TikTok_orders_YYYY-MM-DD.csv` | |
+| TikTok Sales | `TikTok_sales_YYYY-MM-DD.csv` | Legacy — superseded by TikTok Orders |
+| Amazon Orders | `Amazon_orders_YYYY-MM-DD.txt` | Amazon downloads as tab-separated `.txt` — just rename, no conversion needed |
+| Amazon Sales | `Amazon_sales_YYYY-MM-DD.csv` | Legacy — superseded by Amazon Orders |
+| Shopify Sales | `Shopify_sales_YYYY-MM-DD.csv` | |
+| Flexport Levels | `Flexport_levels_YYYY-MM-DD.csv` | |
+| Flexport Orders | `Flexport_orders_YYYY-MM-DD.csv` | |
+| Flexport Inbound | `Flexport_inbound_YYYY-MM-DD.csv` | |
 
 The pipeline finds the **most recently dated file** matching each prefix — always place new downloads in `input/`.
 
