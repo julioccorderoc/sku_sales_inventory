@@ -73,23 +73,23 @@ The pipeline runs two major jobs:
 
 ### 1. Amazon (Seller Central)
 
-#### A. Amazon Sales Report
-
-1. **Navigate** to the \'[Selling Economics and Fees](https://sellercentral.amazon.com/sereport)\' report
-2. **Configure** the filter to \'Aggregate by Merchant SKU\' and Date Range to **Last 30 Days**, then **Click** Download.
-3. **Rename** the file following the convention `Amazon_sales_YYYY-MM-DD.csv`
-
-#### B. FBA Inventory
+#### A. FBA Inventory
 
 1. **Navigate** to [**Reports \> Fulfillment \> Restock Inventory**](https://sellercentral.amazon.com/reportcentral/RestockReport/1).
 2. **Click** the "Request CSV Download" button.
 3. **Rename** the file following the convention `FBA_report_YYYY-MM-DD.csv`
 
-#### C. AWD Inventory
+#### B. AWD Inventory
 
 1. **Navigate** to [**AWD \> View Inventory**](https://sellercentral.amazon.com/fba-inventory/gim/inventory-list?ref=asdn_about)
 2. **Select** the checkbox for "All eligible FBA SKUs" and **Click** "AWD inventory report"
 3. **Rename** the file following the convention `AWD_Report_YYYY-MM-DD.csv`
+
+#### C. Amazon Orders Report
+
+1. **Navigate** to [**Reports \> Orders \> Order Items Report**](https://sellercentral.amazon.com/order-reports-and-feeds/reports/allOrders)
+2. **Configure** the filter to **Last 30 Days**, then **Click** "Download"
+3. **Rename** the file following the convention `Amazon_orders_YYYY-MM-DD.txt`
 
 ### 2. Walmart (Seller Center)
 
