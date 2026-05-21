@@ -510,6 +510,9 @@ def _normalize_and_aggregate_amazon_report(
     return parsed_data
 
 
+FC_TRANSFER_CANDIDATES = ("Reserved FC Transfer", "fc_transfer", "FC Transfer", "fc-transfer")
+
+
 def parse_fba_report(file_paths: dict[str, Path]) -> ParseResult:
     """Loads FBA data and transforms it into the standard normalized format."""
     df = load_csv(file_paths["primary"])
@@ -518,16 +521,31 @@ def parse_fba_report(file_paths: dict[str, Path]) -> ParseResult:
 
     raw_count = len(df)
 
-    # Define the specific column mappings for an FBA report
+    # Amazon announced 2026-05-21 that "Reserved FC Transfer" will be renamed to
+    # "fc_transfer" by 2026-05-30 (units are now classified as buyable, not reserved).
+    # Accept either name and normalize so the pipeline survives the cutover.
+    fc_transfer_col = next((c for c in FC_TRANSFER_CANDIDATES if c in df.columns), None)
+    if fc_transfer_col is None:
+        logger.error(
+            f"❌ FBA report missing FC Transfer column (tried {FC_TRANSFER_CANDIDATES}). "
+            f"Columns present: {list(df.columns)}"
+        )
+        return ParseResult(df=None)
+    if fc_transfer_col != "Reserved FC Transfer":
+        df = df.rename(columns={fc_transfer_col: "Reserved FC Transfer"})
+        logger.info(f"ℹ️  FBA report uses '{fc_transfer_col}' — normalized to 'Reserved FC Transfer'.")
+
+    # Inventory = `available` + FC Transfer column — matches Seller Central's
+    # "On Hand" metric (validated against fba-inventory-*.xlsx export, 0.18% drift).
     fba_column_map = {
-        "units_sold": "Units Sold Last 30 Days",
-        "inventory": ["Available", "FC transfer"],
-        "inbound": "Inbound",
+        "units_sold": "units-shipped-t30",
+        "inventory": ["available", "Reserved FC Transfer"],
+        "inbound": "inbound-quantity",
     }
 
     # Use the helper to perform the core logic
     parsed_data = _normalize_and_aggregate_amazon_report(
-        df, fba_column_map, source_sku_col="Merchant SKU"
+        df, fba_column_map, source_sku_col="sku"
     )
 
     # Ensure all desired SKUs are present in the output

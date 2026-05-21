@@ -1,4 +1,4 @@
-Country,Product Name,FNSKU,Merchant SKU,ASIN,Condition,Units Sold Last 30 Days,Available,FC transfer,Inbound
-US,Product A,FNSKU1,1001,ASIN1,New,10,40,3,5
-US,Product B Softgels,FNSKU2,3001s,ASIN2,New,4,15,0,2
-US,Unknown Product,FNSKU3,UNKNOWN_SKU,ASIN3,New,2,8,0,0
+snapshot-date,sku,fnsku,asin,product-name,condition,available,inv-age-0-to-90-days,units-shipped-t30,inbound-quantity,Reserved FC Transfer,Reserved FC Processing,Reserved Customer Order,Reserved Staging,unfulfillable-quantity,Inventory Supply at FBA
+2026-05-19,1001,FNSKU1,ASIN1,Product A,New,40,40,10,5,3,0,0,0,0,48
+2026-05-19,3001s,FNSKU2,ASIN2,Product B Softgels,New,15,15,4,2,0,0,0,0,0,17
+2026-05-19,UNKNOWN_SKU,FNSKU3,ASIN3,Unknown Product,New,8,8,2,0,0,0,0,0,0,8

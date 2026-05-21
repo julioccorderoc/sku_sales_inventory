@@ -61,7 +61,7 @@ class TestParseFbaReport:
         result = parse_fba_report(fba_fixture)
         row = result.df[result.df["SKU"] == "1001"].iloc[0]
         assert row["Units"] == 10
-        assert row["Inventory"] == 43   # Available(40) + FC transfer(3)
+        assert row["Inventory"] == 43   # available(40) + Reserved FC Transfer(3)
         assert row["Inbound"] == 5
 
     def test_trailing_s_stripped(self, fba_fixture):
@@ -83,6 +83,16 @@ class TestParseFbaReport:
     def test_missing_file_returns_none_df(self, fixtures_dir):
         result = parse_fba_report({"primary": fixtures_dir / "nonexistent.csv"})
         assert result.df is None
+
+    def test_handles_renamed_fc_transfer_column(self, fixtures_dir):
+        # Amazon renames "Reserved FC Transfer" → "fc_transfer" by 2026-05-30.
+        # Parser must accept either name and produce identical output.
+        result = parse_fba_report({"primary": fixtures_dir / "fba_report_renamed_fct.csv"})
+        assert result.df is not None
+        row = result.df[result.df["SKU"] == "1001"].iloc[0]
+        assert row["Inventory"] == 43  # available(40) + fc_transfer(3)
+        assert row["Inbound"] == 5
+        assert row["Units"] == 10
 
 
 class TestParseAwdReport:
