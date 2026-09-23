@@ -11,7 +11,8 @@ dependencies = [
     "requests>=2.32.4",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
+# uv installs this group on a bare `uv sync`, so a fresh clone can run the tests.
 dev = ["pytest>=8.0"]
 
 [tool.pytest.ini_options]
