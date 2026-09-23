@@ -14,11 +14,18 @@ Automated ETL pipeline for **Natural Cure Labs (NCL)** that aggregates, normaliz
 ## Commands
 
 ```bash
-# Run the full pipeline (production)
+# Run the full pipeline (production) — publishes to the workbooks + Teams
 python main.py
 
-# Run in test mode (skips webhook POST, still generates CSV/JSON output)
+# Dry run: reads the snapshot and builds both reports, writes NOTHING to Excel
+# and posts nothing live. Reports land in output/*.html
 python main.py --test
+
+# Re-publish a report date that was already pushed (duplicates history rows)
+python main.py --force-publish
+
+# One-off Teams delivery smoke test (the only path that posts a live message)
+python main.py --test-teams
 
 # Run individual pipeline in isolation (for debugging)
 python -c "from src.pipelines.inventory import InventoryPipeline; InventoryPipeline().run()"
@@ -45,13 +52,23 @@ src/
   parsers.py                    # All channel-specific CSV parsers
   schemas.py                    # Pydantic validation models
   settings.py                   # Config loader (env vars + mappings.json)
-  data_handler.py               # Output saving + webhook POST
+  data_handler.py               # Output saving + legacy webhook POST
   utils.py                      # Shared helpers (CSV loading, date parsing, clean_money)
   logger.py                     # Console + rotating file logging
+  integrations/                 # Microsoft Graph lane (workbooks)
+    microsoft_auth.py           # App-only + delegated token acquisition, cached
+    graph.py                    # HTTP client: retries, 429/5xx, pagination
+    excel.py                    # Worksheet read / append / upsert
+  reporting/                    # Internal replacement for the n8n workflow
+    deltas.py                   # Days_Since_Last_Report + Delta_* per sku_channel_id
+    html.py                     # 4 report builders (summaries + anomalies)
+    transports.py               # Teams webhook | graph chat | file | none
+    publisher.py                # Orchestration + idempotency ledger
 config/
   mappings.json                 # Master config: SKU maps, channel order, SKU list
 input/                          # Manually downloaded CSVs from seller platforms
-output/                         # Generated reports (CSV + JSON pairs)
+output/                         # Generated reports (CSV + JSON + HTML)
+output/publish_ledger.json      # What has already been published, keyed by date
 logs/app.log                    # Rotating log (5MB max, 3 backups)
 ```
 
@@ -61,7 +78,12 @@ Each pipeline follows the abstract `DataPipeline` base class pattern:
 
 1. **Extract** — `_extract()`: Finds the latest report file(s) per channel, returns raw DataFrame
 2. **Transform** — `_transform(df)`: Normalizes columns, zero-fills all SKU × channel combinations, validates with Pydantic
-3. **Load** — handled by base class: saves CSV/JSON to `output/`, POSTs to webhook
+3. **Load** — handled by base class: saves CSV/JSON to `output/`, then publishes via `src/reporting/publisher.py`:
+   appends to the history workbook, reads the previous snapshot, computes deltas, upserts the
+   snapshot, and posts the summary + anomaly reports to Teams. See `docs/teams_reporting.md`.
+
+The legacy n8n webhook POST still exists in `src/data_handler.py` but is **off by default**
+(`WEBHOOK_ENABLED=false`) — running both lanes would double-write the same workbooks.
 
 ---
 
@@ -83,8 +105,26 @@ OUTPUT_DIR="output"
 COMBINED_FILENAME="inventory_report"
 SAVE_JSON_OUTPUT="true"
 
-# Webhook
+# Legacy n8n webhook — OFF now that publishing is internal
 WEBHOOK_URL="https://..."
+WEBHOOK_ENABLED="false"
+
+# Microsoft Graph (app registration shared with supply_chain_agent)
+MS_TENANT_ID="..."
+MS_CLIENT_ID="..."
+MS_CLIENT_SECRET="..."      # app-only grant → workbooks (does not expire)
+MS_REFRESH_TOKEN="..."      # delegated grant → Teams chat (90-day cap)
+MS_MAILBOX_ADDRESS="julio@naturalcurelabs.com"
+MS_INVENTORY_WORKBOOK_ID="016XA7EZ36EKRNDCJNUZA3JXJTLH4YB44K"
+MS_HISTORY_WORKBOOK_ID="016XA7EZ74NOVOHL26LZGIUGKTW25ZWYLA"
+
+# Publishing / Teams
+PUBLISH_ENABLED="true"
+TEAMS_TRANSPORT="webhook"    # webhook | graph_chat | file | none
+TEAMS_WEBHOOK_URL="https://*.powerplatform.com/powerautomate/automations/direct/..."
+TEAMS_WEBHOOK_PAYLOAD="adaptive_card"   # the flow's action posts a card
+TEAMS_CHAT_ID=""
+PUBLISH_SEND_GAP_SECONDS="2"
 ```
 
 ### Config Files — Mappings and Catalog
@@ -277,19 +317,29 @@ The date in the filename is the **processing date** (today's date when the scrip
 
 ---
 
-## Webhook Integration
+## Publishing (Workbooks + Teams)
 
-After each pipeline completes, results are POSTed to the n8n webhook defined in `WEBHOOK_URL`:
+After each pipeline completes, `src/reporting/publisher.py` runs six steps against
+the Microsoft Graph workbooks and Teams:
 
-```json
-{
-  "reportType": "inventory" | "sales",
-  "reportSummary": { "date": "...", "totalRecords": 192, ... },
-  "reportData": [ { "id": "...", "sku": "...", ... } ]
-}
-```
+1. Append the rows to `historical_SKU_data.xlsx` (`inventory` / `sales`)
+2. Read the previous snapshot from `Inventory.xlsx` (`raw_inventory` / `raw_sales`)
+3. Compute `Days_Since_Last_Report` + `Delta_*` per `sku_channel_id`
+4. Upsert the new snapshot (matched on `sku_channel_id`)
+5. Post the per-channel summary to Teams
+6. Post the anomaly report to Teams
 
-Use `--test` flag to skip the webhook POST during development.
+Key behaviours:
+
+- A failed snapshot **read** aborts the publish — writing a new snapshot without the old one
+  destroys the state needed for tomorrow's deltas.
+- Re-running a report date already in `output/publish_ledger.json` is refused unless
+  `--force-publish` is passed.
+- `--test` runs the whole thing as a dry run: reports are built and written to `output/*.html`,
+  but nothing is written to Excel and nothing is posted live.
+
+Transport is pluggable (`TEAMS_TRANSPORT`): `webhook` (Power Automate Workflows URL),
+`graph_chat`, `file` (default), `none`. Operator guide: `docs/teams_reporting.md`.
 
 ## Before Starting Any Task
 

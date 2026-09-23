@@ -51,11 +51,44 @@ AMAZON_ORDERS_PREFIX  = "Amazon_orders_"    # Step 2 — not yet active
 WALMART_ORDERS_PREFIX = "Walmart_orders_"   # Step 3 — not yet active
 # TikTok Shop already uses TIKTOK_ORDERS_PREFIX above   — Step 4 complete (EPIC-008)
 
-# --- Webhook ---
+# --- Webhook (legacy n8n lane — OFF by default) ---
+# The n8n workflow was replaced by src/reporting/publisher.py. Leave this false
+# unless you deliberately want both lanes writing to the same workbooks.
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEBHOOK_ENABLED = os.getenv("WEBHOOK_ENABLED", "false").lower() == "true"
 WEBHOOK_MAX_RETRIES = int(os.getenv("WEBHOOK_MAX_RETRIES", "3"))
 # Base for exponential backoff: delay = WEBHOOK_RETRY_BACKOFF ** attempt (2s, 4s, 8s)
 WEBHOOK_RETRY_BACKOFF = float(os.getenv("WEBHOOK_RETRY_BACKOFF", "2.0"))
+
+# --- Publishing (internal replacement for the n8n workflow) ---
+PUBLISH_ENABLED = os.getenv("PUBLISH_ENABLED", "true").lower() == "true"
+
+# Microsoft Graph — the app registration shared with the supply_chain_agent.
+# App-only (client credentials) carries Files.ReadWrite.All for the workbooks;
+# the delegated refresh token carries ChatMessage.Send for the chat transport.
+MS_TENANT_ID = os.getenv("MS_TENANT_ID")
+MS_CLIENT_ID = os.getenv("MS_CLIENT_ID")
+MS_CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET")
+MS_REFRESH_TOKEN = os.getenv("MS_REFRESH_TOKEN")
+MS_MAILBOX_ADDRESS = os.getenv("MS_MAILBOX_ADDRESS", "julio@naturalcurelabs.com")
+
+# Workbook driveItem ids (same values the n8n workflow used).
+INVENTORY_WORKBOOK_ID = os.getenv(
+    "MS_INVENTORY_WORKBOOK_ID", "016XA7EZ36EKRNDCJNUZA3JXJTLH4YB44K"
+)
+HISTORY_WORKBOOK_ID = os.getenv(
+    "MS_HISTORY_WORKBOOK_ID", "016XA7EZ74NOVOHL26LZGIUGKTW25ZWYLA"
+)
+
+# Teams delivery: webhook | graph_chat | file | none
+TEAMS_TRANSPORT = os.getenv("TEAMS_TRANSPORT", "file")
+TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL")
+# The Power Automate action's bound field: message | adaptive_card | text
+TEAMS_WEBHOOK_PAYLOAD = os.getenv("TEAMS_WEBHOOK_PAYLOAD", "message")
+TEAMS_CHAT_ID = os.getenv("TEAMS_CHAT_ID")
+# Seconds between the summary and the anomaly post (keeps Teams ordering sane).
+PUBLISH_SEND_GAP_SECONDS = float(os.getenv("PUBLISH_SEND_GAP_SECONDS", "2"))
+
 # --- Output Configuration ---
 SAVE_JSON_OUTPUT = os.getenv("SAVE_JSON_OUTPUT", "true").lower() == "true"
 

@@ -88,6 +88,37 @@ def run_combine_inventory():
     logger.info(f"📊 Total records: {len(combined_df)}")
 
 
+def run_teams_smoke_test():
+    """Post ONE visible test message to the configured Teams destination.
+
+    Operator-gated on purpose: this is the only path that writes to a live
+    channel, so it never runs as part of the pipeline.
+    """
+    from src.reporting.cards import simple_card
+    from src.reporting.transports import Report, build_transport
+
+    logger.info(f"🧪 Teams smoke test → TEAMS_TRANSPORT={settings.TEAMS_TRANSPORT}")
+    transport = build_transport()
+    message = (
+        "If you can read this, the internal reporting lane can reach this "
+        "destination. Safe to ignore."
+    )
+    try:
+        transport.send(Report(
+            title="sku-pipeline-smoke-test",
+            html=(
+                "<div style='font-family: Arial, sans-serif;'>"
+                "<strong>✅ SKU sales &amp; inventory pipeline — Teams smoke test</strong><br>"
+                f"{message}</div>"
+            ),
+            card=simple_card("✅ SKU sales &amp; inventory pipeline — smoke test", message),
+        ))
+    except Exception as e:
+        logger.error(f"❌ Teams smoke test failed: {e}")
+        return
+    logger.info("✅ Teams smoke test delivered.")
+
+
 def run_master_pipeline():
     parser = argparse.ArgumentParser(description="Run Sales and Inventory Pipeline")
     parser.add_argument(
@@ -97,9 +128,21 @@ def run_master_pipeline():
         "--combine", "-c", action="store_true",
         help="Combine historical inventory reports into a single file",
     )
+    parser.add_argument(
+        "--force-publish", action="store_true",
+        help="Publish even when this report date was already pushed (duplicates history)",
+    )
+    parser.add_argument(
+        "--test-teams", action="store_true",
+        help="Send one smoke-test message to the configured Teams destination, then exit",
+    )
     args = parser.parse_args()
 
     test_mode = args.test
+
+    if args.test_teams:
+        run_teams_smoke_test()
+        return
 
     start_time = time.time()
     logger.info(
@@ -117,7 +160,9 @@ def run_master_pipeline():
     else:
         # --- STEP 1: INVENTORY UPDATE ---
         try:
-            inventory_job = InventoryPipeline(test_mode=test_mode)
+            inventory_job = InventoryPipeline(
+                test_mode=test_mode, force_publish=args.force_publish
+            )
             inventory_job.run()
         except Exception as e:
             logger.error(f"\n❌ CRITICAL ERROR in Inventory Process: {e}", exc_info=True)
@@ -126,7 +171,7 @@ def run_master_pipeline():
 
         # --- STEP 2: SALES AGGREGATION ---
         try:
-            sales_job = SalesPipeline(test_mode=test_mode)
+            sales_job = SalesPipeline(test_mode=test_mode, force_publish=args.force_publish)
             sales_job.run()
         except Exception as e:
             logger.error(f"\n❌ CRITICAL ERROR in Sales Process: {e}", exc_info=True)

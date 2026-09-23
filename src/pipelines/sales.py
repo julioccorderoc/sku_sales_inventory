@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class SalesPipeline(DataPipeline):
-    def __init__(self, test_mode: bool = False):
-        super().__init__("sales", channels=[], test_mode=test_mode)
+    def __init__(self, test_mode: bool = False, force_publish: bool = False):
+        super().__init__("sales", channels=[], test_mode=test_mode, force_publish=force_publish)
         self.system_date = date.today()
 
         # Standardized registry: every entry uses the same keys

@@ -14,14 +14,15 @@ The pipeline runs two major jobs:
 - **Normalization**: Ensures all master SKUs are present in the output (zero-filling missing data).
 - **Validation**: Uses Pydantic models to ensure data integrity.
 - **Logging**: Detailed logging to console and `logs/app.log`.
-- **Webhooks**: Automatically posts processed data to an n8n webhook.
+- **Publishing**: Writes the history and snapshot workbooks over Microsoft Graph,
+  computes day-over-day deltas, and posts summary + anomaly cards to Teams.
+  See [docs/teams_reporting.md](docs/teams_reporting.md).
 
 ## Project Structure
 
 ```text
 .
-├── config/             # JSON configuration files
-│   └── mappings.json   # SKU mappings and channel order
+├── config/             # JSON configuration files (SKU maps, channel order)
 ├── input/              # Place raw CSV reports here
 ├── logs/               # Log files (rotating)
 ├── output/             # Processed CSV/JSON reports
@@ -43,26 +44,47 @@ The pipeline runs two major jobs:
 
 3. **Environment Variables**:
 
-    Create a `.env` file in the root directory:
+    Copy `.env.example` to `.env` and fill it in. The Microsoft Graph
+    credentials are the same app registration the `supply_chain_agent` uses;
+    `docs/teams_reporting.md` explains each value and how to re-mint the
+    delegated token.
 
-    ```ini
-    INPUT_DIR=input
-    OUTPUT_DIR=output
-    WEBHOOK_URL=https://your-webhook-url.com
+    ```bash
+    cp .env.example .env
     ```
+
+4. **Configuration**: `config/` is **not** in this repository — it carries the
+    SKU and channel mappings and is distributed separately. Ask the pipeline
+    owner for the five JSON files before running.
 
 ## Usage
 
 1. **Download Reports**: Place the required CSV files in the `input/` folder (see instructions below).
-2. **Run Pipeline**:
+2. **Dry run first** — parses, computes deltas, and writes the reports to
+   `output/*.html`, touching nothing else:
 
     ```bash
-    uv run main.py
+    uv run python main.py --test
     ```
 
-3. **Check Output**:
+3. **Run for real** — writes the history and snapshot workbooks and posts to Teams:
+
+    ```bash
+    uv run python main.py
+    ```
+
+    > Re-running the same report date is refused; `--force-publish` overrides it.
+    > Nothing is written to Excel on a dry run.
+
+4. **Check Output**:
     - Processed files will be in `output/`.
     - Logs will be displayed in the terminal and saved to `logs/app.log`.
+
+5. **Verify Teams delivery** (posts one visible test card):
+
+    ```bash
+    uv run python main.py --test-teams
+    ```
 
 ---
 
